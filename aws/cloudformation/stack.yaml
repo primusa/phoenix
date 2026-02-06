@@ -10,6 +10,16 @@ Parameters:
     Default: t4g.small
     AllowedValues: [t4g.small]
     Description: EC2 instance type (t4g.small for free-tier style usage)
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID where instances should be launched
+  PublicSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of public subnet IDs (at least two) for the ALB and ASG
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-arm64-gp2
+    Description: Latest Amazon Linux 2 ARM AMI ID
 
 Resources:
   PhoenixEcrRepository:
@@ -97,16 +107,22 @@ Resources:
           Fn::Base64: !Sub |
             #!/bin/bash -xe
             yum update -y || true
-            amazon-linux-extras install docker -y || yum install -y docker || true
+            yum install -y docker || true
             systemctl enable --now docker || service docker start || true
             usermod -a -G docker ec2-user || true
-            REGION=${AWS::Region}
+            
+            # Get AWS account ID from metadata
             ACCOUNT_ID=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)
-            REPO_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/phoenix-service"
-            aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com || true
-            docker pull ${REPO_URI}:latest || true
+            REGION=${AWS::Region}
+            REPO_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/phoenix-service"
+            
+            # Login to ECR and pull the image
+            aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com || true
+            docker pull $REPO_URI:latest || true
+            
+            # Run the container
             docker rm -f phoenix || true
-            docker run -d --restart unless-stopped -p 8080:8080 --name phoenix ${REPO_URI}:latest || true
+            docker run -d --restart unless-stopped -p 8080:8080 --name phoenix $REPO_URI:latest || true
 
   PhoenixAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -120,18 +136,6 @@ Resources:
       DesiredCapacity: '1'
       TargetGroupARNs:
         - !Ref PhoenixTargetGroup
-
-  VpcId:
-    Type: AWS::EC2::VPC::Id
-    Description: VPC id where instances should be launched
-
-  PublicSubnets:
-    Type: List<AWS::EC2::Subnet::Id>
-    Description: List of public subnet IDs (at least two) for the ALB and ASG
-
-  LatestAmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-arm64-gp2
 
 Outputs:
   EcrRepositoryUri:
