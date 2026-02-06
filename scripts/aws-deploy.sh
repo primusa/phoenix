@@ -2,7 +2,7 @@
 set -euo pipefail
 
 KEY_NAME="${1:-}"
-REGION="${2:-us-east-1}"
+REGION="${2:-us-east-2}"
 STACK_NAME="phoenix-stack"
 
 if [ -z "$KEY_NAME" ]; then

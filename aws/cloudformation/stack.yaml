@@ -122,12 +122,12 @@ Resources:
         - !Ref PhoenixTargetGroup
 
   VpcId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::VPC::Id>
-    Default: /aws/service/management/vpc/default
+    Type: AWS::EC2::VPC::Id
+    Description: VPC id where instances should be launched
 
   PublicSubnets:
     Type: List<AWS::EC2::Subnet::Id>
-    Default: []
+    Description: List of public subnet IDs (at least two) for the ALB and ASG
 
   LatestAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
