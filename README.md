@@ -2,31 +2,82 @@
 
 This repo contains a Spring Boot service and UI. The repository includes CI/CD and CloudFormation artifacts to build, publish, and deploy to AWS (ECR + EC2 t4g.small).
 
-Quick steps (manual):
+## Quick Start
 
-1. Create an ECR repository name (example: `phoenix-service`) and AWS credentials with permissions to create CloudFormation stacks, ECR, EC2 and IAM.
-2. Create an EC2 keypair in the target region (to pass to CloudFormation).
-3. Configure GitHub repository secrets:
-   - `AWS_ACCESS_KEY_ID`
-   - `AWS_SECRET_ACCESS_KEY`
-   - `AWS_REGION` (e.g., `us-east-1`)
-   - `AWS_ACCOUNT_ID`
-   - `ECR_REPOSITORY` (e.g., `phoenix-service`)
-   - `EC2_KEY_NAME` (the keypair name)
+### 1. Create GitHub Repository
 
-Local build & push (example):
+Create an empty repository on GitHub, then push this code:
 
 ```bash
-# build the jar
+# Manual setup (recommended for clarity)
+git remote add origin https://github.com/<owner>/<repo>.git
+git branch -M main
+git push -u origin main
+
+# Or, use the helper script (requires repo to exist on GitHub first)
+./scripts/create-github-repo.sh <owner>/<repo>
+```
+
+### 2. Configure GitHub Secrets
+
+In your GitHub repository settings, add the following secrets (`Settings → Secrets and variables → Actions`):
+
+- `AWS_ACCESS_KEY_ID` – AWS access key ID
+- `AWS_SECRET_ACCESS_KEY` – AWS secret access key
+- `AWS_REGION` – AWS region (e.g., `us-east-1`)
+- `AWS_ACCOUNT_ID` – Your AWS account ID (12-digit number)
+- `ECR_REPOSITORY` – ECR repo name (e.g., `phoenix-service`)
+- `EC2_KEY_NAME` – Name of an EC2 keypair in your region
+
+### 3. Deploy CloudFormation
+
+Prepare the CloudFormation stack with your VPC and subnets:
+
+```bash
+# Get your VPC and public subnet IDs
+aws ec2 describe-vpcs --region us-east-1 --query 'Vpcs[0].VpcId' --output text
+aws ec2 describe-subnets --region us-east-1 --filters Name=vpc-id,Values=<vpc-id> Name=map-public-ip-on-launch,Values=true --query 'Subnets[*].SubnetId' --output text
+
+# Deploy the stack
+aws cloudformation deploy \
+  --template-file aws/cloudformation/stack.yaml \
+  --stack-name phoenix-stack \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides \
+    KeyName=<ec2-keypair-name> \
+    VpcId=<vpc-id> \
+    "PublicSubnets=<subnet-id-1>,<subnet-id-2>" \
+  --region us-east-1
+```
+
+### 4. Manual Build & Push (Optional)
+
+Test locally before relying on CI:
+
+```bash
+# Build the JAR
 mvn -f phoenix-service/pom.xml clean package -DskipTests
 
-# build and push docker image (requires aws cli authenticated)
+# Build and push Docker image to ECR
 ./scripts/build-and-push.sh phoenix-service us-east-1
 
-# deploy cloudformation
+# Deploy CloudFormation
 ./scripts/aws-deploy.sh my-ec2-keypair us-east-1
 ```
 
-Notes:
-- Docker build uses multi-arch images (linux/arm64 and linux/amd64) for compatibility with t4g (arm64).
-- The GitHub Actions workflow `/.github/workflows/ci-cd.yml` automates build, push and deploy when pushing to `main`/`master`.
+## Automation
+
+The GitHub Actions workflow (`.github/workflows/ci-cd.yml`) automatically:
+1. Builds the Java service with Maven
+2. Builds and pushes multi-arch Docker images to ECR
+3. Deploys or updates the CloudFormation stack
+
+Workflow triggers on push to `main` or `master` branch.
+
+## Architecture
+
+- **Spring Boot 4.0** with Java 17 (production-stable)
+- **Docker**: Multi-arch images (linux/arm64, linux/amd64)
+- **AWS**: Application Load Balancer + AutoScaling Group (1 t4g.small instance)
+- **ECR**: Container registry for Docker images
+- **CloudFormation**: Infrastructure as Code for reproducible deployments
