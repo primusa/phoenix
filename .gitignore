@@ -1,0 +1,12 @@
+/.idea
+/target
+**/target
+.DS_Store
+.env
+/.mvn
+/.settings
+node_modules
+phoenix-ui/dist
+.github/workflows/*.secret
+*.log
+/.aws-sam

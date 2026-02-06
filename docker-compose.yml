@@ -1,0 +1,227 @@
+services:
+  # 1. Legacy Source (PostgreSQL)
+  legacy-db:
+    image: postgres:15
+    ports: [ "5432:5432" ]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: insurance_corp
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical" # Mandatory for CDC
+
+  # 2. Kafka KRaft (Latest 8.1 / Kafka 4.1 equivalent). The Bridge (Debezium + Kafka)
+  kafka:
+    image: confluentinc/cp-kafka:8.1.0
+    ports:
+      - "29092:29092"
+      - "9404:9404" # 1. Expose the Prometheus scrape port
+    volumes:
+      # 2. Mount the agent and the config file
+      - ./jmx_prometheus_javaagent.jar:/usr/share/java/kafka/jmx_prometheus_javaagent.jar
+      - ./kafka-jmx-config.yml:/etc/kafka/kafka-jmx-config.yml
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # 3. Attach the agent to the Kafka process
+      KAFKA_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9404:/etc/kafka/kafka-jmx-config.yml"
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:8.1.0
+    depends_on: [ kafka ]
+    ports: [ "8081:8081" ]
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+
+  # 3. CDC & Connect
+  debezium:
+    image: quay.io/debezium/connect:latest
+    depends_on: [ kafka, legacy-db ]
+    ports: [ "8083:8083" ]
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: my_connect_configs
+      OFFSET_STORAGE_TOPIC: my_connect_offsets
+      STATUS_STORAGE_TOPIC: my_connect_statuses
+      # Suppress the Telemetry Exception
+      CONNECT_PRODUCER_ENABLE_METRICS_PUSH: "false"
+      CONNECT_CONSUMER_ENABLE_METRICS_PUSH: "false"
+
+  # 3. Modern Destination (Weaviate Vector DB)
+  weaviate:
+    image: semitechnologies/weaviate:latest
+    ports: [ "8090:8080" ]
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      DEFAULT_VECTORIZER_MODULE: 'text2vec-openai'
+
+  # 4. Local AI (Ollama) - Optional
+  ollama:
+    image: ollama/ollama:latest
+    ports: [ "11434:11434" ]
+    volumes:
+      - ollama_data:/root/.ollama
+    dns: [ 8.8.8.8 ]
+
+  # 5. Observability (Jaeger + Prometheus)
+  # --- EXTERNAL METRICS: Prometheus ---
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports: [ "9090:9090" ]
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - "9100:9100"
+
+  # --- BACKEND : JAEGER v2.0 (Deep-Dive Tracing) ---
+  jaeger:
+    image: jaegertracing/jaeger:latest
+    ports:
+      - "16686:16686" # UI
+      # used by otel-collector. So commenting ports 4317 & 4318 out
+      #  - "4317:4317" # OTLP gRPC
+      # - "4318:4318" # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - JAEGER_DISABLED=false
+      - METRICS_STORAGE_TYPE=prometheus
+      - PROMETHEUS_SERVER_URL=http://prometheus:9090
+      - PROMETHEUS_QUERY_NAMESPACE=span_metrics
+      - PROMETHEUS_QUERY_DURATION_UNIT=ms
+      - PROMETHEUS_QUERY_LABEL_OPERATION=operation
+      - PROMETHEUS_QUERY_LABEL_SERVICE=service
+      - MONITOR_MENU_ENABLED=true
+      - COLLECTOR_OTLP_ENABLED=true
+      # --- ALLOW IFRAME EMBEDDING ---
+      - QUERY_BASE_PATH=/jaeger # Ensures paths resolve correctly in sub-frames
+
+  # --- BACKEND : LGTM Stack (Unified Observability) ---
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    ports:
+      - "3000:3000" # Grafana UI
+      #  - "4317:4317"
+      - "4319:4318"
+      # --- EXPOSED DIRECT PORTS ---
+      - "3100:3100" # Loki (API & Direct Log Ingestion)
+      - "3200:3200" # Tempo (API & Direct Trace Ingestion)
+      - "9091:9090" # Prometheus (Optional: Direct Query API)
+    # We remove 4317/4318 from LGTM to avoid conflict with the standalone Collector
+    environment:
+      # --- GRAFANA IFRAME & SECURITY CONFIG ---
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      # Prevents "Cookie not found" errors inside iframes
+      - GF_SECURITY_COOKIE_SAMESITE=none
+      - GF_SECURITY_COOKIE_SECURE=false
+      - GF_HTTP_ENFORCE_DOMAIN=false
+      - GF_SECURITY_CORS_ALLOW_ALL=true # For dev; in prod, set to your domain
+      # --- COOKIE HANDLING (Essential for Cloud/HTTPS) ---
+      - GF_SECURITY_COOKIE_SAMESITE=none
+      - GF_SECURITY_COOKIE_SECURE=true # Set to true if using HTTPS in cloud
+      # Path to the JSON files inside the container
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/jvm_otlp.json
+      # --- MAXIMUM DATA: show more points and allow larger time ranges ---
+      - GF_EXPLORE_QUERY_DS_MAX_POINTS=10000
+      - GF_DATAPROXY_MAX_RESPONSE_BODY_SIZE=104857600
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+      # Mount datasource provisioning (override Prometheus -> http://prometheus:9090)
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      # Ensure LGTM's *internal* Prometheus scrapes our app + collector metrics
+      - ./grafana/lgtm-prometheus.yaml:/otel-lgtm/prometheus.yaml
+      # Mount provisioning config
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      # Mount actual JSON dashboard files
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+
+  # --- THE BRAIN: OpenTelemetry Collector ---
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: [ "--config=/etc/otel-collector-config.yaml" ]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "8889:8889" # Prometheus exporter
+    depends_on: [ jaeger, lgtm, prometheus ]
+
+  # 6. Backend Service
+  phoenix-backend:
+    build: ./phoenix-service
+    ports: [ "8080:8080" ]
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # Fix: Disable internal Kafka telemetry to use OTel agent instead
+      SPRING_KAFKA_PROPERTIES_ENABLE_METRICS_PUSH: "false"
+      SPRING_AI_VECTORSTORE_WEAVIATE_HOST: weaviate:8080
+      SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+      SPRING_DATASOURCE_URL: jdbc:postgresql://legacy-db:5432/insurance_corp
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      # OTel Pipeline
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_DOTNET_AUTO_LOGS_INCLUDE_FORMATTED_MESSAGE: true
+      OTEL_INSTRUMENTATION_COMMON_DEFAULT_ENABLED: true
+      SPRING_AI_OLLAMA_CHAT_MODEL: llama3.2:3b
+
+      # --- TRACING ---
+      # Modern SB4 standard for tracing export
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+
+      # --- METRICS ---
+      # This powers the Micrometer OTLP push to the collector
+      # Use the SERVICE NAME 'otel-collector' for internal networking
+      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
+      MANAGEMENT_OTLP_METRICS_EXPORT_STEP: "10s"
+
+      # --- LOGS ---
+      # Modern SB4 standard for logging export]
+      MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/logs
+      MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_ENABLED: "true"
+      MANAGEMENT_OPENTELEMETRY_INSTRUMENTATION_LOGBACK_APPENDER_ENABLED: "true"
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: "otlp"
+
+    depends_on: [ kafka, legacy-db, weaviate, jaeger, otel-collector ]
+
+  # 7. Frontend UI
+  phoenix-frontend:
+    build: ./phoenix-ui
+    ports: [ "5173:8080" ] # Map host 5173 to container 8080
+    depends_on: [ phoenix-backend ]
+
+volumes:
+  ollama_data:

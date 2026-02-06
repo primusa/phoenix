@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: 'Phoenix Pipeline Dashboards' # Name shown in Grafana UI
+    orgId: 1
+    folder: 'Observability'              # The UI folder where dashboards will live
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      # This MUST match the path inside the container defined in docker-compose
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true    # Keeps your folder organization if you have subdirectories

@@ -1,0 +1,29 @@
+# Dependencies
+node_modules
+.pnpm-store
+npm-debug.log*
+
+# Build output
+dist
+build
+.vercel
+.output
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+
+# IDE & OS files
+.vscode
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Git
+.git
+.gitignore

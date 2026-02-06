@@ -1,0 +1,14 @@
+lowercaseOutputName: true
+rules:
+- pattern : 'kafka.server<type=ReplicaManager, name=(.+)><>(Value|Count)'
+  name: "kafka_server_replicamanager_$1"
+- pattern : 'kafka.server<type=BrokerTopicMetrics, name=(.+)><>(Count|OneMinuteRate)'
+  name: "kafka_server_brokertopicmetrics_$1"
+- pattern : 'kafka.network<type=RequestMetrics, name=(.+), request=(.+)><>(Count|OneMinuteRate)'
+  name: "kafka_network_requestmetrics_$1"
+  labels:
+    request: "$2"
+- pattern : 'kafka.controller<type=KafkaController, name=(.+)><>(Value|Count)'
+  name: "kafka_controller_kafkacontroller_$1"
+- pattern : 'kafka.log<type=LogFlushStats, name=(.+)><>(Count|OneMinuteRate)'
+  name: "kafka_log_logflushstats_$1"

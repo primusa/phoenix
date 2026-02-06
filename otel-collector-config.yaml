@@ -1,0 +1,169 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    send_batch_size: 1000
+    timeout: 10s
+  # Standard 2026 replacement for metricstransform
+  transform/span_metrics:
+    metric_statements:
+      - context: datapoint
+        statements:
+          # Renames 'span_name' label to 'operation' for Jaeger
+          - set(attributes["operation"], attributes["span_name"]) where metric.name == "span_metrics_calls_total" or metric.name == "span_metrics_latency_bucket"
+          # Renames 'service_name' label to 'service' for Jaeger
+          - set(attributes["service"], attributes["service_name"]) where metric.name == "span_metrics_calls_total" or metric.name == "span_metrics_latency_bucket"
+          # Clean up the old keys to avoid duplicate labels
+          - delete_key(attributes, "span_name")
+          - delete_key(attributes, "service_name")
+    # metricstransform:
+      #    transforms:
+      #     - include: ^span_metrics_(.*)$
+      #       match_type: regexp
+      #       action: update
+      #      operations:
+          #         - action: update_label
+      #          label: span_name
+      #          new_label: operation
+      #        - action: update_label
+      #         label: service_name
+    #         new_label: service
+    # Ensures every signal has a clear service identity
+      #  resource:
+          #   attributes:
+          #   - key: service.name
+          #      from_attribute: service.name
+        #     action: upsert
+
+    # attributes:
+      #   actions:
+        #     - key: peer.service
+        #      from_attribute: client.name
+      #      action: upsert
+        #     - key: peer.service
+        #       from_attribute: db.system
+      #       action: upsert
+        #      - key: peer.service
+        #         from_attribute: rpc.system
+  #        action: upsert
+
+connectors:
+  spanmetrics:
+    # This creates metrics like 'calls_total' and 'duration_bucket'
+    # 'span_metrics' is the standard namespace Jaeger looks for
+    namespace: span_metrics
+    dimensions:
+      - name: http.method
+      - name: http.status_code
+      - name: rpc.system
+      - name: rpc.service
+      - name: rpc.method
+    histogram:
+      unit: ms
+      # Optional: configure specific buckets for latency
+      explicit:
+        buckets: [ 2ms, 10ms, 50ms, 250ms, 1s, 5s ]
+
+exporters:
+  # Tracing backend 1: Jaeger
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls: { insecure: true }
+
+  # Tracing backend 2: Tempo (part of LGTM)
+  otlphttp/tempo:
+    endpoint: http://lgtm:4318
+    tls: { insecure: true }
+
+  # Metrics & Logs for LGTM
+  otlphttp/loki:
+    endpoint: http://lgtm:4318
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch] # Batching is essential for trace performance
+      # Data is multicasted to both Jaeger and Tempo simultaneously
+      exporters: [otlp/jaeger, otlphttp/tempo, spanmetrics]
+    metrics/spanmetrics:
+      receivers: [otlp, spanmetrics]
+      # Transform MUST come before batch so the labels are fixed before export
+      processors: [transform/span_metrics, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki]
+
+  # service:
+    #  pipelines:
+      #   traces:
+      #     receivers: [otlp]
+      #     processors: [attributes, batch]
+    #     exporters: [otlp, spanmetrics, debug, jaeger_storage_exporter]
+      #   metrics:
+      #     receivers: [spanmetrics]
+      #     processors: [batch, metricstransform]
+    #    exporters: [prometheus, debug]
+      #  logs:
+      #    receivers: [otlp]
+      #    processors: [batch]
+    #   exporters: [otlp, debug]
+
+
+
+        # extensions:
+  #   jaeger_storage:
+  #     backends:
+  #      main_trace_storage:
+  #        memory: # Or elasticsearch/cassandra
+  #         max_traces: 10000
+  #  metric_backends:
+        #      some_metrics_storage:
+          #       prometheus:
+  #         endpoint: http://prometheus:9090
+  # jaeger_query:
+    #    traces: main_trace_storage
+   # metrics_storage: some_metrics_storage
+  #  storage:
+  #    traces: main_trace_storage
+  #   metrics:
+        # This enables the "Monitor" API
+  #      prometheus:
+          #        endpoint: "http://prometheus:9090"
+          # CRITICAL: This maps the UI's "calls" request to "calls_total" in Prometheus
+  #      normalize_calls: true
+#     normalize_duration: true
+
+
+  # service:
+  # extensions: [ jaeger_query, jaeger_storage ]
+    #  pipelines:
+      #  traces:
+      #      receivers: [ otlp ]
+      #      processors: [ batch ]
+      #     exporters: [ otlp/jaeger, spanmetrics ]
+      # You MUST use the spanmetrics connector to generate the data
+      # exporters: [ jaeger_storage_exporter, spanmetrics ]
+      #    metrics/spanmetrics:
+      # CRITICAL: Adding 'otlp' here allows the collector to accept
+      # the metrics your Phoenix app is pushing to /v1/metrics
+      #       receivers: [ spanmetrics, otlp]
+      #    processors: [ metricstransform, batch ]
+      #      exporters: [ prometheus ]
+      # exporters: [ prometheus, debug ]
+      #     logs:
+      #      receivers: [otlp]
+      #      processors: [batch]
+      # exporters: [otlp/jaeger]
+      # DO NOT use otlp/jaeger here. Use 'debug' to see them in console.
+    #    exporters: [debug]
