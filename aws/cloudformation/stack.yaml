@@ -192,11 +192,31 @@ Resources:
           Fn::Base64: !Sub |
             #!/bin/bash -xe
             yum update -y || true
-            yum install -y docker git || true
+            yum install -y docker git jq || true
+            
+            # Create 5GB swap memory to prevent OOM
+            dd if=/dev/zero of=/swapfile bs=1G count=5
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            echo '/swapfile none swap sw 0 0' >> /etc/fstab
             
             # Install docker-compose
             curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
             chmod +x /usr/local/bin/docker-compose || true
+            
+            # Configure Docker daemon for better memory management
+            mkdir -p /etc/docker
+            cat > /etc/docker/daemon.json << 'EOF'
+            {
+              "storage-driver": "overlay2",
+              "log-driver": "json-file",
+              "log-opts": {
+                "max-size": "10m",
+                "max-file": "3"
+              }
+            }
+            EOF
             
             systemctl enable --now docker || service docker start || true
             usermod -a -G docker ec2-user || true
@@ -205,6 +225,7 @@ Resources:
             ACCOUNT_ID=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)
             REGION=${AWS::Region}
             ECR_REPO_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/phoenix-service"
+            ECR_UI_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/phoenix-ui"
             
             # Login to ECR
             aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com || true
@@ -214,11 +235,11 @@ Resources:
             git clone https://github.com/primusa/phoenix.git || (cd phoenix && git pull) || true
             cd phoenix
             
-            # Pull ECR image for phoenix backend
+            # Pull ECR images for phoenix backend and frontend
             docker pull $ECR_REPO_URI:latest || true
+            docker pull $ECR_UI_URI:latest || true
             
-            # Update docker-compose.yml to use ECR image instead of building
-            # Replace phoenix-backend service to use ECR image
+            # Update docker-compose.yml to use ECR images instead of building
             cat > docker-compose-override.yml << 'COMPOSE_EOF'
             services:
               phoenix-backend:
@@ -236,7 +257,7 @@ Resources:
                   MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
                   OTEL_DOTNET_AUTO_LOGS_INCLUDE_FORMATTED_MESSAGE: true
                   OTEL_INSTRUMENTATION_COMMON_DEFAULT_ENABLED: true
-                  SPRING_AI_OLLAMA_CHAT_MODEL: llama3.2:3b
+                  SPRING_AI_OLLAMA_CHAT_MODEL: tinyllama
                   MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
                   MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
                   MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
@@ -246,14 +267,22 @@ Resources:
                   MANAGEMENT_OPENTELEMETRY_INSTRUMENTATION_LOGBACK_APPENDER_ENABLED: "true"
                   LOGGING_STRUCTURED_FORMAT_CONSOLE: "otlp"
                 depends_on: [ kafka, legacy-db, weaviate, jaeger, otel-collector ]
+              
+              phoenix-frontend:
+                image: ${PHOENIX_UI_ECR_URI}:latest
+                restart: unless-stopped
+                ports: [ "5173:8080" ]
+                depends_on: [ phoenix-backend ]
             COMPOSE_EOF
             
             # Start docker-compose stack
             export PHOENIX_ECR_URI="$ECR_REPO_URI"
+            export PHOENIX_UI_ECR_URI="$ECR_UI_URI"
             docker-compose -f docker-compose.yml -f docker-compose-override.yml up -d || true
             
-            # Logs for debugging
-            docker-compose logs -f &
+            # Log startup
+            sleep 10
+            docker-compose ps
 
   PhoenixAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
