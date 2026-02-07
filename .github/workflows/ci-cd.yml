@@ -57,5 +57,9 @@ jobs:
         env:
           KEY_NAME: ${{ secrets.EC2_KEY_NAME }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
+          CFN_VPC_ID: ${{ secrets.CFN_VPC_ID }}
+          CFN_PUBLIC_SUBNETS: ${{ secrets.CFN_PUBLIC_SUBNETS }}
+          CFN_ROLE_ARN: ${{ secrets.CFN_ROLE_ARN }}
         run: |
-          ./scripts/aws-deploy.sh $KEY_NAME $AWS_REGION
+          # Pass VPC/subnets if set in repository secrets (or the script will auto-discover tagged VPC)
+          ./scripts/aws-deploy.sh "$KEY_NAME" "$AWS_REGION" "$CFN_VPC_ID" "$CFN_PUBLIC_SUBNETS"
