@@ -68,56 +68,12 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}r
+          role-to-assume: ${{secrets.CFN_ROLE_ARN}}
+          role-session-name: GitHub_to_AWS_Deployment
           aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Assume CI/CD Role with ECR Permissions
-        env:
-          CFN_ROLE_ARN: ${{ secrets.CFN_ROLE_ARN }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
-        run: |
-          if [ -z "$CFN_ROLE_ARN" ]; then
-            echo "⚠️  CFN_ROLE_ARN not configured. Using direct AWS credentials."
-            echo "Note: The AWS user must have ecr:GetAuthorizationToken permission."
-            exit 0
-          fi
-          
-          echo "ℹ️  Attempting to assume role: $CFN_ROLE_ARN"
-          
-          # Try to assume the role
-          if RESPONSE=$(aws sts assume-role \
-            --role-arn "$CFN_ROLE_ARN" \
-            --role-session-name "phoenix-ci-session" \
-            --duration-seconds 3600 \
-            --output json 2>&1); then
-            
-            # Successfully assumed role, extract credentials
-            ACCESS_KEY=$(echo "$RESPONSE" | jq -r '.Credentials.AccessKeyId')
-            SECRET_KEY=$(echo "$RESPONSE" | jq -r '.Credentials.SecretAccessKey')
-            SESSION_TOKEN=$(echo "$RESPONSE" | jq -r '.Credentials.SessionToken')
-            
-            export AWS_ACCESS_KEY_ID="$ACCESS_KEY"
-            export AWS_SECRET_ACCESS_KEY="$SECRET_KEY"
-            export AWS_SESSION_TOKEN="$SESSION_TOKEN"
-            
-            echo "AWS_ACCESS_KEY_ID=$ACCESS_KEY" >> $GITHUB_ENV
-            echo "AWS_SECRET_ACCESS_KEY=$SECRET_KEY" >> $GITHUB_ENV
-            echo "AWS_SESSION_TOKEN=$SESSION_TOKEN" >> $GITHUB_ENV
-            
-            echo "✓ Role assumed successfully with session: phoenix-ci-session"
-          else
-            # Role assumption failed, log error but continue with direct credentials
-            echo "⚠️  Failed to assume role (continuing with direct credentials):"
-            echo "$RESPONSE"
-            echo ""
-            echo "Troubleshooting:"
-            echo "1. Verify CFN_ROLE_ARN is correct and exists"
-            echo "2. Check the role's trust policy allows your AWS user to assume it"
-            echo "3. Ensure your AWS user has sts:AssumeRole permission"
-            echo "4. Verify AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are valid"
-            echo ""
-            echo "Proceeding with direct AWS credentials..."
-          fi
+      - name: Verify Identity
+        run: aws sts get-caller-identity
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
