@@ -71,6 +71,39 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      - name: Assume CI/CD Role with ECR Permissions
+        env:
+          CFN_ROLE_ARN: ${{ secrets.CFN_ROLE_ARN }}
+        run: |
+          if [ -z "$CFN_ROLE_ARN" ]; then
+            echo "⚠️  CFN_ROLE_ARN not configured. Using direct AWS credentials."
+            echo "Note: The AWS user used must have ecr:GetAuthorizationToken and ecr:BatchGetImage permissions."
+            exit 0
+          fi
+          
+          echo "✓ Assuming role: $CFN_ROLE_ARN"
+          
+          # Assume the role and get temporary credentials
+          CREDENTIALS=$(aws sts assume-role \
+            --role-arn "$CFN_ROLE_ARN" \
+            --role-session-name "phoenix-ci-session" \
+            --duration-seconds 3600 \
+            --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+            --output text 2>&1) || {
+            echo "❌ Failed to assume role. Ensure the role exists and trust policy allows the AWS user to assume it."
+            exit 1
+          }
+          
+          ACCESS_KEY=$(echo $CREDENTIALS | awk '{print $1}')
+          SECRET_KEY=$(echo $CREDENTIALS | awk '{print $2}')
+          SESSION_TOKEN=$(echo $CREDENTIALS | awk '{print $3}')
+          
+          # Export as GitHub Actions environment variables
+          echo "AWS_ACCESS_KEY_ID=$ACCESS_KEY" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=$SECRET_KEY" >> $GITHUB_ENV
+          echo "AWS_SESSION_TOKEN=$SESSION_TOKEN" >> $GITHUB_ENV
+          echo "✓ Role assumed successfully"
+
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
