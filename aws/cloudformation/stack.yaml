@@ -50,19 +50,103 @@ Resources:
   PhoenixSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow HTTP and app ports
+      GroupDescription: Allow HTTP, SSH, and docker-compose service ports
+      VpcId: !Ref VpcId
       SecurityGroupIngress:
+        # SSH
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
           CidrIp: 0.0.0.0/0
+        # HTTP
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+        # Phoenix Backend
         - IpProtocol: tcp
           FromPort: 8080
           ToPort: 8080
+          CidrIp: 0.0.0.0/0
+        # PostgreSQL
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+        # Kafka & Kafka JMX
+        - IpProtocol: tcp
+          FromPort: 29092
+          ToPort: 29092
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 9404
+          ToPort: 9404
+          CidrIp: 0.0.0.0/0
+        # Schema Registry
+        - IpProtocol: tcp
+          FromPort: 8081
+          ToPort: 8081
+          CidrIp: 0.0.0.0/0
+        # Debezium
+        - IpProtocol: tcp
+          FromPort: 8083
+          ToPort: 8083
+          CidrIp: 0.0.0.0/0
+        # Weaviate
+        - IpProtocol: tcp
+          FromPort: 8090
+          ToPort: 8090
+          CidrIp: 0.0.0.0/0
+        # Ollama
+        - IpProtocol: tcp
+          FromPort: 11434
+          ToPort: 11434
+          CidrIp: 0.0.0.0/0
+        # Prometheus
+        - IpProtocol: tcp
+          FromPort: 9090
+          ToPort: 9090
+          CidrIp: 0.0.0.0/0
+        # Node Exporter
+        - IpProtocol: tcp
+          FromPort: 9100
+          ToPort: 9100
+          CidrIp: 0.0.0.0/0
+        # Jaeger UI
+        - IpProtocol: tcp
+          FromPort: 16686
+          ToPort: 16686
+          CidrIp: 0.0.0.0/0
+        # Grafana & LGTM
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3100
+          ToPort: 3100
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3200
+          ToPort: 3200
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 4318
+          ToPort: 4319
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 4317
+          ToPort: 4317
+          CidrIp: 0.0.0.0/0
+        # OpenTelemetry Collector
+        - IpProtocol: tcp
+          FromPort: 8889
+          ToPort: 8889
+          CidrIp: 0.0.0.0/0
+        # Phoenix Frontend
+        - IpProtocol: tcp
+          FromPort: 5173
+          ToPort: 5173
           CidrIp: 0.0.0.0/0
 
   PhoenixLoadBalancer:
@@ -70,6 +154,7 @@ Resources:
     Properties:
       Name: phoenix-alb
       Scheme: internet-facing
+      Type: application
       SecurityGroups: [ !Ref PhoenixSecurityGroup ]
       Subnets:
         - !Select [0, !Ref PublicSubnets]
@@ -107,22 +192,68 @@ Resources:
           Fn::Base64: !Sub |
             #!/bin/bash -xe
             yum update -y || true
-            yum install -y docker || true
+            yum install -y docker git || true
+            
+            # Install docker-compose
+            curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+            chmod +x /usr/local/bin/docker-compose || true
+            
             systemctl enable --now docker || service docker start || true
             usermod -a -G docker ec2-user || true
             
             # Get AWS account ID from metadata
             ACCOUNT_ID=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)
             REGION=${AWS::Region}
-            REPO_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/phoenix-service"
+            ECR_REPO_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/phoenix-service"
             
-            # Login to ECR and pull the image
+            # Login to ECR
             aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com || true
-            docker pull $REPO_URI:latest || true
             
-            # Run the container
-            docker rm -f phoenix || true
-            docker run -d --restart unless-stopped -p 8080:8080 --name phoenix $REPO_URI:latest || true
+            # Clone repository
+            cd /opt
+            git clone https://github.com/primusa/phoenix.git || (cd phoenix && git pull) || true
+            cd phoenix
+            
+            # Pull ECR image for phoenix backend
+            docker pull $ECR_REPO_URI:latest || true
+            
+            # Update docker-compose.yml to use ECR image instead of building
+            # Replace phoenix-backend service to use ECR image
+            cat > docker-compose-override.yml << 'COMPOSE_EOF'
+            services:
+              phoenix-backend:
+                image: ${PHOENIX_ECR_URI}:latest
+                restart: unless-stopped
+                ports: [ "8080:8080" ]
+                environment:
+                  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+                  SPRING_KAFKA_PROPERTIES_ENABLE_METRICS_PUSH: "false"
+                  SPRING_AI_VECTORSTORE_WEAVIATE_HOST: weaviate:8080
+                  SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+                  SPRING_DATASOURCE_URL: jdbc:postgresql://legacy-db:5432/insurance_corp
+                  SPRING_DATASOURCE_USERNAME: postgres
+                  SPRING_DATASOURCE_PASSWORD: postgres
+                  MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+                  OTEL_DOTNET_AUTO_LOGS_INCLUDE_FORMATTED_MESSAGE: true
+                  OTEL_INSTRUMENTATION_COMMON_DEFAULT_ENABLED: true
+                  SPRING_AI_OLLAMA_CHAT_MODEL: llama3.2:3b
+                  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+                  MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+                  MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
+                  MANAGEMENT_OTLP_METRICS_EXPORT_STEP: "10s"
+                  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/logs
+                  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_ENABLED: "true"
+                  MANAGEMENT_OPENTELEMETRY_INSTRUMENTATION_LOGBACK_APPENDER_ENABLED: "true"
+                  LOGGING_STRUCTURED_FORMAT_CONSOLE: "otlp"
+                depends_on: [ kafka, legacy-db, weaviate, jaeger, otel-collector ]
+            COMPOSE_EOF
+            
+            # Start docker-compose stack
+            export PHOENIX_ECR_URI="$ECR_REPO_URI"
+            docker-compose -f docker-compose.yml -f docker-compose-override.yml up -d || true
+            
+            # Logs for debugging
+            docker-compose logs -f &
 
   PhoenixAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
