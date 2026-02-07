@@ -70,6 +70,7 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}r
           role-to-assume: ${{secrets.CFN_ROLE_ARN}}
+          unset-current-credentials: true
           role-session-name: GitHub_to_AWS_Deployment
           aws-region: ${{ secrets.AWS_REGION }}
       - name: Verify Identity
