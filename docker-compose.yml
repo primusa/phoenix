@@ -72,11 +72,28 @@ services:
 
   # 4. Local AI (Ollama) - Optional
   ollama:
-    image: ollama/ollama:latest
+    image: alpine/ollama:latest
+    # For local development, you can build the Ollama image with your custom models and use that instead. 
+    # Just ensure the image is tagged as 'alpine/ollama:latest' or update the reference here.
+    #image: ollama/ollama:latest
     ports: [ "11434:11434" ]
+    entrypoint: /bin/sh
     volumes:
       - ollama_data:/root/.ollama
     dns: [ 8.8.8.8 ]
+   # environment:
+    #   - OLLAMA_KEEP_ALIVE=-1m
+    command: >
+        -c "
+        ollama serve &
+        sleep 5 &&
+        ollama pull tinyllama &&
+        ollama pull nomic-embed-text &&
+        wait
+        "
+   # ollama run tinyllama 'ping' --keepalive -1m &&
+  # ollama run nomic-embed-text 'ping' --keepalive -1m &&
+    restart: unless-stopped
 
   # 5. Observability (Jaeger + Prometheus)
   # --- EXTERNAL METRICS: Prometheus ---
@@ -195,7 +212,7 @@ services:
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_DOTNET_AUTO_LOGS_INCLUDE_FORMATTED_MESSAGE: true
       OTEL_INSTRUMENTATION_COMMON_DEFAULT_ENABLED: true
-      SPRING_AI_OLLAMA_CHAT_MODEL: llama3.2:3b
+      SPRING_AI_OLLAMA_CHAT_MODEL: tinyllama
 
       # --- TRACING ---
       # Modern SB4 standard for tracing export

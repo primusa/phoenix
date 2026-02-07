@@ -1,5 +1,5 @@
-# Stage 1: Build using a stable Java 17 Temurin image
-FROM maven:3.9-eclipse-temurin-17-alpine AS build
+# Stage 1: Build using a stable Java 21 Temurin image
+FROM maven:3.9-eclipse-temurin-21-alpine AS build
 WORKDIR /app
 
 # Cache dependencies: Copy only pom.xml first
@@ -15,8 +15,8 @@ COPY src ./src
 # Skip tests and use Java 25 preview features if needed
 RUN mvn clean package -DskipTests
 
-# Stage 2: Runtime - use a small Java 17 runtime image
-FROM eclipse-temurin:17-jre-alpine
+# Stage 2: Runtime - use a small Java 21 runtime image
+FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
 # Create a non-root user for runtime
