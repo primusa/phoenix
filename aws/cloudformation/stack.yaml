@@ -221,8 +221,30 @@ Resources:
             systemctl enable --now docker || service docker start || true
             usermod -a -G docker ec2-user || true
             
-            # Get AWS account ID from metadata
-            ACCOUNT_ID=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)
+            # --- Get AWS Account ID with IMDSv2 fallback to IMDSv1 ---
+            echo "Attempting to retrieve Account ID..."
+            
+            # Try IMDSv2 first
+            TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+            
+            if [ -n "$TOKEN" ]; then
+              echo "Using IMDSv2 to get Account ID"
+              ACCOUNT_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)
+            else
+              echo "IMDSv2 failed or not required. Falling back to IMDSv1"
+              ACCOUNT_ID=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)
+            fi
+
+            if [ -z "$ACCOUNT_ID" ] || [ "$ACCOUNT_ID" == "null" ]; then
+              echo "ERROR: Could not retrieve Account ID from Metadata Service"
+              # Fallback: Try to get it from the IAM Role ARN if metadata failed
+              ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+              echo "Retrieved Account ID from STS as fallback: $ACCOUNT_ID"
+            else
+              echo "Successfully retrieved Account ID: $ACCOUNT_ID"
+            fi
+            
+            # ---------------------------------------------------------
             REGION=${AWS::Region}
             ECR_REPO_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/phoenix-service"
             ECR_UI_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/phoenix-ui"
@@ -230,20 +252,23 @@ Resources:
             # Login to ECR
             aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com || true
             
-            # Clone repository
+            # Clone or Update repository
             cd /opt
-            git clone https://github.com/primusa/phoenix.git || (cd phoenix && git pull) || true
+            if [ ! -d "phoenix" ]; then
+              git clone https://github.com/primusa/phoenix.git
+            fi
             cd phoenix
+            git pull || true
             
             # Pull ECR images for phoenix backend and frontend
             docker pull $ECR_REPO_URI:latest || true
             docker pull $ECR_UI_URI:latest || true
             
-            # Update docker-compose.yml to use ECR images instead of building
+            # Create override file - Note the ! used to escape Bash variables from CloudFormation !Sub
             cat > docker-compose-override.yml << 'COMPOSE_EOF'
             services:
               phoenix-backend:
-                image: ${PHOENIX_ECR_URI}:latest
+                image: ${!PHOENIX_ECR_URI}:latest
                 restart: unless-stopped
                 ports: [ "8080:8080" ]
                 environment:
@@ -269,7 +294,7 @@ Resources:
                 depends_on: [ kafka, legacy-db, weaviate, jaeger, otel-collector ]
               
               phoenix-frontend:
-                image: ${PHOENIX_UI_ECR_URI}:latest
+                image: ${!PHOENIX_UI_ECR_URI}:latest
                 restart: unless-stopped
                 ports: [ "5173:8080" ]
                 depends_on: [ phoenix-backend ]
@@ -278,9 +303,9 @@ Resources:
             # Start docker-compose stack
             export PHOENIX_ECR_URI="$ECR_REPO_URI"
             export PHOENIX_UI_ECR_URI="$ECR_UI_URI"
-            docker-compose -f docker-compose.yml -f docker-compose-override.yml up -d || true
+            docker-compose -f docker-compose.yml -f docker-compose-override.yml up -d
             
-            # Log startup
+            # Health Check Log
             sleep 10
             docker-compose ps
 
