@@ -28,7 +28,7 @@ jobs:
             ${{ runner.os }}-m2-
 
       - name: Build with Maven
-        run: mvn -B clean package -DskipTests
+        run: mvn -f phoenix-service/pom.xml -B clean package -DskipTests
 
   publish:
     needs: build
