@@ -70,8 +70,16 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
           role-to-assume: ${{ secrets.CFN_ROLE_ARN }}
 
-      - name: Build and push
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Verify ECR access
+        run: |
+          aws ecr get-authorization-token --region ${{ secrets.AWS_REGION }} >/dev/null
+
+      - name: Build and push Docker images (multi-arch)
         env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           chmod +x ./scripts/build-and-push.sh
