@@ -64,6 +64,11 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - uses: ./.github/actions/aws-auth
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.CFN_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Build and push
         env:
@@ -81,6 +86,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/aws-auth
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.CFN_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Deploy
         env:
