@@ -191,17 +191,27 @@ Resources:
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash -xe
+            set -e  # Exit immediately if a command fails
+            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1 # Log everything!
+  
+            echo "Starting Phoenix Bootstrap..."
+            
+            # 1. System Prep
             yum update -y || true
             yum install -y docker git jq || true
             
             # Create 5GB swap memory to prevent OOM
+            # 2. Memory Management (Keep your 5GB Swap - it's a good move!)
+            if [ ! -f /swapfile ]; then
             dd if=/dev/zero of=/swapfile bs=1G count=5
             chmod 600 /swapfile
             mkswap /swapfile
             swapon /swapfile
             echo '/swapfile none swap sw 0 0' >> /etc/fstab
+            fi
             
             # Install docker-compose
+            # 3. Docker Config
             curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
             chmod +x /usr/local/bin/docker-compose || true
             
@@ -221,35 +231,14 @@ Resources:
             systemctl enable --now docker || service docker start || true
             usermod -a -G docker ec2-user || true
             
-            # --- Get AWS Account ID with IMDSv2 fallback to IMDSv1 ---
-            echo "Attempting to retrieve Account ID..."
-            
-            # Try IMDSv2 first
-            TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
-            
-            if [ -n "$TOKEN" ]; then
-              echo "Using IMDSv2 to get Account ID"
-              ACCOUNT_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)
-            else
-              echo "IMDSv2 failed or not required. Falling back to IMDSv1"
-              ACCOUNT_ID=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)
-            fi
-
-            if [ -z "$ACCOUNT_ID" ] || [ "$ACCOUNT_ID" == "null" ]; then
-              echo "ERROR: Could not retrieve Account ID from Metadata Service"
-              # Fallback: Try to get it from the IAM Role ARN if metadata failed
-              ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
-              echo "Retrieved Account ID from STS as fallback: $ACCOUNT_ID"
-            else
-              echo "Successfully retrieved Account ID: $ACCOUNT_ID"
-            fi
-            
-            # ---------------------------------------------------------
+            # 4. Use Native CFN Variables
+            ACCOUNT_ID=${AWS::AccountId}
             REGION=${AWS::Region}
             ECR_REPO_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/phoenix-service"
             ECR_UI_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/phoenix-ui"
             
             # Login to ECR
+            # 5. ECR Login
             aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com || true
             
             # Clone or Update repository
