@@ -1,5 +1,20 @@
 name: 'AWS Authentication'
 description: 'Assumes IAM Role for GitHub Actions via OIDC'
+
+inputs:
+  aws-access-key-id:
+    description: 'AWS Access Key ID'
+    required: false
+  aws-secret-access-key:
+    description: 'AWS Secret Access Key'
+    required: false
+  aws-region:
+    description: 'AWS Region'
+    required: true
+  role-to-assume:
+    description: 'IAM Role ARN'
+    required: true
+
 runs:
   using: 'composite'
   steps:
