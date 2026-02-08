@@ -6,16 +6,17 @@ on:
   workflow_dispatch:
     inputs:
       deploy:
-        description: 'Trigger deployment after build'
+        description: 'Trigger deployment'
         required: false
         default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
+        type: boolean # Changed to boolean for easier if-checks
 
 env:
   MAVEN_OPTS: -DskipTests=true
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   build:
@@ -29,23 +30,8 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Cache Maven packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-m2-
-
-      - name: Build backend with Maven
+      - name: Build backend
         run: mvn -f phoenix-service/pom.xml -B clean package -DskipTests
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: 'phoenix-ui/package-lock.json'
 
       - name: Build frontend
         run: |
@@ -53,47 +39,55 @@ jobs:
           npm install
           npm run build
 
+      # SAVE THE BUILT FILES FOR THE NEXT JOB
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-assets
+          path: |
+            phoenix-service/target/*.jar
+            phoenix-ui/dist/
+            scripts/
+
   publish:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4 # Keep this for the Dockerfiles
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled-assets
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - uses: ./.github/actions/aws-auth
 
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Verify ECR access
-        run: |
-          aws ecr get-authorization-token --region ${{ secrets.AWS_REGION }} >/dev/null
-
-      - name: Build and push Docker images (multi-arch)
+      - name: Build and push
         env:
-          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
+          chmod +x ./scripts/build-and-push.sh
           bash ./scripts/build-and-push.sh phoenix-service $AWS_REGION
 
   deploy:
     needs: publish
     runs-on: ubuntu-latest
     environment: production
-    if: github.event_name == 'push' || github.event.inputs.deploy == 'true'
+    # Logic fix: Check for push OR the boolean input
+    if: github.event_name == 'push' || github.event.inputs.deploy == true
     steps:
       - uses: actions/checkout@v4
-
       - uses: ./.github/actions/aws-auth
 
-      - name: Deploy CloudFormation stack
+      - name: Deploy
         env:
           KEY_NAME: ${{ secrets.EC2_KEY_NAME }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
           CFN_VPC_ID: ${{ secrets.CFN_VPC_ID }}
           CFN_PUBLIC_SUBNETS: ${{ secrets.CFN_PUBLIC_SUBNETS }}
-          CFN_ROLE_ARN: ${{ secrets.CFN_ROLE_ARN }}
         run: |
+          chmod +x ./scripts/aws-deploy.sh
           ./scripts/aws-deploy.sh "$KEY_NAME" "$AWS_REGION" "$CFN_VPC_ID" "$CFN_PUBLIC_SUBNETS"
