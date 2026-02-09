@@ -53,12 +53,12 @@ DEPLOYMENT_ID=$(date +%s)
 
 # Stack Status Check & Waiting
 echo "Checking stack status..."
-for i in {1..30}; do
+for i in {1..50}; do
   STATUS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "MISSING")
   
-  if [[ "$STATUS" =~ CLEANUP_IN_PROGRESS|DELETE_IN_PROGRESS ]]; then
-    echo "Wait: $STATUS ($i/30)..."
-    sleep 10
+  if [[ "$STATUS" =~ CLEANUP_IN_PROGRESS|DELETE_IN_PROGRESS|WAIT_IN_PROGRESS ]]; then
+    echo "Current Status: $STATUS. Waiting ($i/50)..."
+    sleep 20
   elif [[ "$STATUS" =~ FAILED|ROLLBACK ]]; then
     echo "🧹 Cleanup old failure ($STATUS)..."
     aws cloudformation delete-stack --stack-name "$STACK_NAME" --region "$REGION"
@@ -90,7 +90,10 @@ aws cloudformation deploy \
   --stack-name "$STACK_NAME" \
   --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides "${PARAMS[@]}" \
-  --region "$REGION"
+  --region "$REGION" || {
+    echo "❌ Deployment failed. If it's stuck in CLEANUP_IN_PROGRESS, please wait 5 minutes and try again."
+    exit 1
+  }
 
 echo "✅ Success!"
 

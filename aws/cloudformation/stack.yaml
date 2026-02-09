@@ -65,12 +65,14 @@ Resources:
 
   GeneratedIGW:
     Condition: CreateIGW
+    DeletionPolicy: Retain
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags: [{ Key: Name, Value: phoenix-igw }]
 
   VPCGatewayAttachment:
     Condition: CreateIGW
+    DeletionPolicy: Retain
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       VpcId: !Ref VpcId
@@ -78,6 +80,7 @@ Resources:
 
   PublicRouteTable:
     Condition: CreatePublicSubnets
+    DeletionPolicy: Retain
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VpcId
@@ -85,6 +88,7 @@ Resources:
 
   PublicRoute:
     Condition: CreatePublicSubnets
+    DeletionPolicy: Retain
     Type: AWS::EC2::Route
     DependsOn: VPCGatewayAttachment
     Properties:
@@ -94,6 +98,7 @@ Resources:
 
   PublicSubnet1:
     Condition: CreatePublicSubnets
+    DeletionPolicy: Retain
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VpcId
@@ -111,6 +116,7 @@ Resources:
 
   PublicSubnet2:
     Condition: CreatePublicSubnet2
+    DeletionPolicy: Retain
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VpcId
@@ -128,6 +134,7 @@ Resources:
 
   PrivateSubnet1:
     Condition: CreatePrivateSubnets
+    DeletionPolicy: Retain
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VpcId
@@ -428,6 +435,15 @@ Resources:
       PayloadFormatVersion: "1.0"
       IntegrationMethod: ANY
 
+  AssetsIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref PhoenixApi
+      IntegrationType: HTTP_PROXY
+      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/assets/", !Sub "http://${PhoenixInstance.PublicIp}:5173/assets/"]
+      PayloadFormatVersion: "1.0"
+      IntegrationMethod: ANY
+
   BackendIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
@@ -452,15 +468,6 @@ Resources:
       ApiId: !Ref PhoenixApi
       IntegrationType: HTTP_PROXY
       IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/jaeger/", !Sub "http://${PhoenixInstance.PublicIp}:16686/jaeger/"]
-      PayloadFormatVersion: "1.0"
-      IntegrationMethod: ANY
-
-  AssetsIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref PhoenixApi
-      IntegrationType: HTTP_PROXY
-      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/assets/", !Sub "http://${PhoenixInstance.PublicIp}:5173/assets/"]
       PayloadFormatVersion: "1.0"
       IntegrationMethod: ANY
 
