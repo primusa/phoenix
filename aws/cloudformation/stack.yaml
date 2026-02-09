@@ -90,7 +90,8 @@ Resources:
     Condition: CreatePublicSubnets
     DeletionPolicy: Retain
     Type: AWS::EC2::Route
-    DependsOn: VPCGatewayAttachment
+    # We depend on the attachment (if new) and the table itself
+    DependsOn: [VPCGatewayAttachment, PublicRouteTable]
     Properties:
       RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
