@@ -176,9 +176,21 @@ Resources:
       VpcId: !Ref VpcId
       GroupDescription: Phoenix instance group
       SecurityGroupIngress:
+        # SSH always allowed (SSM preferred)
         - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: 0.0.0.0/0 }
-        - { IpProtocol: tcp, FromPort: 5173, ToPort: 5173, CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"] }
-        - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
+        # Frontend, Backend, Grafana, Jaeger restricted to ALB if present
+        - { IpProtocol: tcp, FromPort: 5173, ToPort: 5173, 
+            CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"],
+            SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
+        - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, 
+            CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"],
+            SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
+        - { IpProtocol: tcp, FromPort: 3000, ToPort: 3000, 
+            CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"],
+            SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
+        - { IpProtocol: tcp, FromPort: 16686, ToPort: 16686, 
+            CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"],
+            SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
       SecurityGroupEgress:
         - { IpProtocol: -1, CidrIp: 0.0.0.0/0 }
 
@@ -233,15 +245,15 @@ Resources:
             ECR_REPO_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/${PhoenixServiceRepoName}"
             ECR_UI_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/${PhoenixUiRepoName}"
             
-            aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+            aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com || true
             
             cd /opt
             [ -d "phoenix" ] || git clone https://github.com/primusa/phoenix.git
             cd phoenix
             git pull
             docker system prune -af
-            docker pull $ECR_REPO_URI:latest
-            docker pull $ECR_UI_URI:latest
+            docker pull $ECR_REPO_URI:latest || true
+            docker pull $ECR_UI_URI:latest || true
             
             export PHOENIX_ECR_URI="$ECR_REPO_URI"
             export PHOENIX_UI_ECR_URI="$ECR_UI_URI"
@@ -257,9 +269,9 @@ Resources:
             /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml up -d
             chown -R ec2-user:ec2-user /opt/phoenix
             echo "Initializing Database..."
-            bash ./init-db.sh
+            bash ./init-db.sh || true
             echo "Setting up Debezium..."
-            bash ./setup-debezium.sh
+            bash ./setup-debezium.sh || true
             sleep 10
             /usr/bin/docker-compose ps
 
@@ -292,12 +304,36 @@ Resources:
       Subnets: !If [CreatePublicSubnets, [!Ref PublicSubnet1, !Ref PublicSubnet2], !Ref PublicSubnetIds]
       SecurityGroups: [!Ref ALBSecurityGroup]
 
-  PhoenixTargetGroup:
+  FrontendTargetGroup:
+    Condition: UseALB
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Port: 5173
+      Protocol: HTTP
+
+  BackendTargetGroup:
     Condition: UseALB
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       VpcId: !Ref VpcId
       Port: 8080
+      Protocol: HTTP
+
+  MonitoringTargetGroup:
+    Condition: UseALB
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Port: 3000
+      Protocol: HTTP
+
+  JaegerTargetGroup:
+    Condition: UseALB
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Port: 16686
       Protocol: HTTP
 
   PhoenixListener:
@@ -307,7 +343,40 @@ Resources:
       LoadBalancerArn: !Ref PhoenixLoadBalancer
       Port: 80
       Protocol: HTTP
-      DefaultActions: [{ Type: forward, TargetGroupArn: !Ref PhoenixTargetGroup }]
+      DefaultActions: [{ Type: forward, TargetGroupArn: !Ref FrontendTargetGroup }]
+
+  ApiRule:
+    Condition: UseALB
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref PhoenixListener
+      Priority: 10
+      Actions: [{ Type: forward, TargetGroupArn: !Ref BackendTargetGroup }]
+      Conditions:
+        - Field: path-pattern
+          Values: [/api/*]
+
+  GrafanaRule:
+    Condition: UseALB
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref PhoenixListener
+      Priority: 20
+      Actions: [{ Type: forward, TargetGroupArn: !Ref MonitoringTargetGroup }]
+      Conditions:
+        - Field: path-pattern
+          Values: [/grafana*]
+
+  JaegerRule:
+    Condition: UseALB
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref PhoenixListener
+      Priority: 30
+      Actions: [{ Type: forward, TargetGroupArn: !Ref JaegerTargetGroup }]
+      Conditions:
+        - Field: path-pattern
+          Values: [/jaeger*]
 
   PhoenixAutoScalingGroup:
     Condition: UseALB
@@ -320,12 +389,11 @@ Resources:
       MinSize: '1'
       MaxSize: '1'
       DesiredCapacity: '1'
-      TargetGroupARNs: [!Ref PhoenixTargetGroup]
+      TargetGroupARNs: [!Ref FrontendTargetGroup, !Ref BackendTargetGroup, !Ref MonitoringTargetGroup, !Ref JaegerTargetGroup]
       Tags:
         - Key: project
           Value: phoenix
           PropagateAtLaunch: true
-        # Hidden dependency to ensure ASG instances are terminated before subnets
         - Key: DeletionOrderDependency
           Value: !If [CreatePublicSubnets, !Join ["-", [!Ref PublicSubnet1Association, !Ref PublicRoute]], "ExternalSubnet"]
           PropagateAtLaunch: true
@@ -340,24 +408,69 @@ Resources:
       Name: !Sub "${AWS::StackName}-api"
       ProtocolType: HTTP
 
-  PhoenixApiIntegration:
+  FrontendIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref PhoenixApi
       IntegrationType: HTTP_PROXY
-      IntegrationUri: !If 
-        - UseALB
-        - !Sub "http://${PhoenixLoadBalancer.DNSName}"
-        - !Sub "http://${PhoenixInstance.PublicIp}:5173"
+      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/", !Sub "http://${PhoenixInstance.PublicIp}:5173/"]
       PayloadFormatVersion: "1.0"
       IntegrationMethod: ANY
 
-  PhoenixApiRoute:
+  BackendIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref PhoenixApi
+      IntegrationType: HTTP_PROXY
+      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/api/", !Sub "http://${PhoenixInstance.PublicIp}:8080/api/"]
+      PayloadFormatVersion: "1.0"
+      IntegrationMethod: ANY
+
+  GrafanaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref PhoenixApi
+      IntegrationType: HTTP_PROXY
+      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/grafana/", !Sub "http://${PhoenixInstance.PublicIp}:3000/"]
+      PayloadFormatVersion: "1.0"
+      IntegrationMethod: ANY
+
+  JaegerIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref PhoenixApi
+      IntegrationType: HTTP_PROXY
+      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/jaeger/", !Sub "http://${PhoenixInstance.PublicIp}:16686/jaeger/"]
+      PayloadFormatVersion: "1.0"
+      IntegrationMethod: ANY
+
+  DefaultRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref PhoenixApi
-      RouteKey: "ANY /{proxy+}"
-      Target: !Join ["/", ["integrations", !Ref PhoenixApiIntegration]]
+      RouteKey: "$default"
+      Target: !Join ["/", ["integrations", !Ref FrontendIntegration]]
+
+  BackendRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref PhoenixApi
+      RouteKey: "ANY /api/{proxy+}"
+      Target: !Join ["/", ["integrations", !Ref BackendIntegration]]
+
+  GrafanaRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref PhoenixApi
+      RouteKey: "ANY /grafana/{proxy+}"
+      Target: !Join ["/", ["integrations", !Ref GrafanaIntegration]]
+
+  JaegerRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref PhoenixApi
+      RouteKey: "ANY /jaeger/{proxy+}"
+      Target: !Join ["/", ["integrations", !Ref JaegerIntegration]]
 
   PhoenixApiStage:
     Type: AWS::ApiGatewayV2::Stage

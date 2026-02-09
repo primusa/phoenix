@@ -81,18 +81,12 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     dns: [ 8.8.8.8 ]
-   # environment:
+    # environment:
     #   - OLLAMA_KEEP_ALIVE=-1m
     command: >
-        -c "
-        ollama serve &
-        sleep 5 &&
-        ollama pull tinyllama &&
-        ollama pull nomic-embed-text &&
-        wait
-        "
-   # ollama run tinyllama 'ping' --keepalive -1m &&
-  # ollama run nomic-embed-text 'ping' --keepalive -1m &&
+      -c " ollama serve & sleep 5 && ollama pull tinyllama && ollama pull nomic-embed-text && wait "
+    # ollama run tinyllama 'ping' --keepalive -1m &&
+    # ollama run nomic-embed-text 'ping' --keepalive -1m &&
     restart: unless-stopped
 
   # 5. Observability (Jaeger + Prometheus)
@@ -164,6 +158,9 @@ services:
       - GF_SECURITY_COOKIE_SECURE=false
       - GF_HTTP_ENFORCE_DOMAIN=false
       - GF_SECURITY_CORS_ALLOW_ALL=true # For dev; in prod, set to your domain
+      # --- SUBPATH CONFIG (Essential for API Gateway/ALB) ---
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s:%(http_port)s/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
       # --- COOKIE HANDLING (Essential for Cloud/HTTPS) ---
       - GF_SECURITY_COOKIE_SAMESITE=none
       - GF_SECURITY_COOKIE_SECURE=true # Set to true if using HTTPS in cloud

@@ -3,20 +3,23 @@ import axios from 'axios'
 import toast, { Toaster } from 'react-hot-toast'
 import { Brain, Database, Send, RefreshCw, Zap, Activity, ShieldCheck, LayoutDashboard, Sliders, Search, CheckCircle2, ArrowRight, Terminal, Clock, DollarSign, Lock, Sparkles, HelpCircle, X, ShieldAlert, BarChart3, ExternalLink, Box, Link2 } from 'lucide-react'
 
-const API_BASE = 'http://localhost:8080/api'
-const GRAFANA_URL = 'http://localhost:3000'
-// Jaeger is configured with QUERY_BASE_PATH=/jaeger in docker-compose
-const JAEGER_URL = 'http://localhost:16686/jaeger'
-
 const isLocal = window.location.hostname === 'localhost';
 
-const PUBLIC_GRAFANA_URL = isLocal
-  ? 'http://localhost:3000'
-  : `${window.location.protocol}//monitor.${window.location.hostname}`;
+// In production/AWS, the API Gateway or ALB will proxy these paths
+const API_BASE = isLocal
+  ? 'http://localhost:8080/api'
+  : `${window.location.protocol}//${window.location.host}/api`;
 
-const PUBLIC_JAEGER_URL = isLocal
+const GRAFANA_URL = isLocal
+  ? 'http://localhost:3000'
+  : `${window.location.protocol}//${window.location.host}/grafana`;
+
+const JAEGER_URL = isLocal
   ? 'http://localhost:16686/jaeger'
-  : `${window.location.protocol}//trace.${window.location.hostname}`;
+  : `${window.location.protocol}//${window.location.host}/jaeger`;
+
+const PUBLIC_GRAFANA_URL = GRAFANA_URL;
+const PUBLIC_JAEGER_URL = JAEGER_URL;
 
 const STAGES = [
   { id: 1, label: 'Postgres WAL', icon: <Database className="w-4 h-4" /> },
@@ -174,7 +177,7 @@ function App() {
                       <div className="absolute top-full mt-2 left-0 w-48 p-2 bg-slate-800 text-[9px] text-slate-300 rounded-lg opacity-0 group-hover:opacity-100 transition-all z-[110] border border-slate-700 pointer-events-none shadow-2xl">
                         Based on avg tokens/claim (Input: ~150, Output: ~400) x current model {provider.toUpperCase()} pricing.
                       </div>
-                      
+
                     </div>
                     <div className="w-px h-6 bg-slate-700" />
                     <div className="flex flex-col">

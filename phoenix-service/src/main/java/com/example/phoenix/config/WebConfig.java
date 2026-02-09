@@ -7,8 +7,8 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/**") // Allow ALL endpoints
-                .allowedOrigins("http://localhost:5173") // Your React Dev port
+        registry.addMapping("/**")
+                .allowedOriginPatterns("*") // More flexible for dynamic AWS environments
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true);
