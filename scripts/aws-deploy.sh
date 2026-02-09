@@ -8,10 +8,11 @@ OVERRIDE_PUBLIC_SUBNETS="${4:-}"
 SERVICE_REPO="${5:-phoenix-service}"
 UI_REPO="${6:-phoenix-ui}"
 CREATE_ALB="${7:-false}"
+INSTANCE_TYPE="${8:-t4g.small}"
 STACK_NAME="phoenix-stack"
 
 if [ -z "$KEY_NAME" ]; then
-  echo "Usage: $0 <keypair> [region] [vpc] [public-subnets] [service-repo] [ui-repo] [create-alb]"
+  echo "Usage: $0 <keypair> [region] [vpc] [subnets] [svc-repo] [ui-repo] [alb] [instance-type]"
   exit 2
 fi
 
@@ -34,12 +35,7 @@ echo "✅ VPC: $VPC_ID"
 
 # 2. Find Internet Gateway
 IGW_ID=$(aws ec2 describe-internet-gateways --region "$REGION" --filters "Name=attachment.vpc-id,Values=$VPC_ID" --query 'InternetGateways[0].InternetGatewayId' --output text)
-if [ "$IGW_ID" = "None" ] || [ -z "$IGW_ID" ]; then
-  echo "⚠️  No Internet Gateway found for VPC $VPC_ID. CloudFormation will attempt to create one."
-  IGW_ID=""
-else
-  echo "✅ Internet Gateway: $IGW_ID"
-fi
+IGW_ID="${IGW_ID#None}" # Convert "None" string to empty if needed
 
 # 3. Determine Subnets
 if [ -n "$OVERRIDE_PUBLIC_SUBNETS" ]; then
@@ -59,15 +55,13 @@ DEPLOYMENT_ID=$(date +%s)
 echo "Checking stack status..."
 for i in {1..30}; do
   STATUS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "MISSING")
-  echo "Current Status: $STATUS"
   
   if [[ "$STATUS" =~ CLEANUP_IN_PROGRESS|DELETE_IN_PROGRESS ]]; then
-    echo "Stack is cleaning up/deleting. Waiting 10s ($i/30)..."
+    echo "Wait: $STATUS ($i/30)..."
     sleep 10
   elif [[ "$STATUS" =~ FAILED|ROLLBACK ]]; then
-    echo "🧹 Stack in a failed state ($STATUS). Deleting..."
+    echo "🧹 Cleanup old failure ($STATUS)..."
     aws cloudformation delete-stack --stack-name "$STACK_NAME" --region "$REGION"
-    echo "Waiting for deletion to complete..."
     aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region "$REGION"
     break
   else
@@ -82,6 +76,7 @@ PARAMS=(
   "PhoenixServiceRepoName=$SERVICE_REPO"
   "PhoenixUiRepoName=$UI_REPO"
   "CreateALB=$CREATE_ALB"
+  "InstanceType=$INSTANCE_TYPE"
   "DeploymentId=$DEPLOYMENT_ID"
 )
 
@@ -89,7 +84,7 @@ PARAMS=(
 [[ -n "$PUBLIC_SUBNETS" ]] && PARAMS+=("PublicSubnetIds=$PUBLIC_SUBNETS")
 [[ -n "$PRIVATE_SUBNETS" ]] && PARAMS+=("PrivateSubnetIds=$PRIVATE_SUBNETS")
 
-echo "🚀 Deploying (DeploymentId: $DEPLOYMENT_ID)..."
+echo "🚀 Deploying ($INSTANCE_TYPE)..."
 aws cloudformation deploy \
   --template-file aws/cloudformation/stack.yaml \
   --stack-name "$STACK_NAME" \
@@ -98,3 +93,23 @@ aws cloudformation deploy \
   --region "$REGION"
 
 echo "✅ Success!"
+
+# DASHBOARD
+INSTANCE_IP=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" --query 'Stacks[0].Outputs[?OutputKey==`InstancePublicIp`].OutputValue' --output text 2>/dev/null || echo "N/A")
+INSTANCE_ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text 2>/dev/null || echo "N/A")
+ALB_DNS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDns`].OutputValue' --output text 2>/dev/null || echo "N/A")
+API_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" --query 'Stacks[0].Outputs[?OutputKey==`ApiGatewayUrl`].OutputValue' --output text 2>/dev/null || echo "N/A")
+
+echo "-------------------------------------------------------"
+echo "🌎 ACCESS INFO"
+echo "API Gateway (HTTPS): $API_URL"
+if [ "$CREATE_ALB" = "true" ]; then
+    echo "ALB DNS:             http://$ALB_DNS"
+else
+    echo "Direct Public IP:    http://$INSTANCE_IP:5173"
+fi
+echo " "
+echo "📋 DEBUGGING"
+echo "Connect:  aws ssm start-session --target $INSTANCE_ID --region $REGION"
+echo "Logs:     sudo tail -f /var/log/user-data.log"
+echo "-------------------------------------------------------"

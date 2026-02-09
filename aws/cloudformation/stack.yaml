@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Phoenix service stack (dev :- single EC2, prod :- ALB + ASG)
+Description: Phoenix service stack (dev :- single EC2, prod :- ALB + ASG + API Gateway)
 
 Parameters:
   EnvironmentMode:
@@ -60,7 +60,7 @@ Conditions:
 Resources:
 
   ########################
-  # Networking (IGW + Routes for Public Access)
+  # Networking
   ########################
 
   GeneratedIGW:
@@ -176,11 +176,8 @@ Resources:
       VpcId: !Ref VpcId
       GroupDescription: Phoenix instance group
       SecurityGroupIngress:
-        # SSH for debugging (No-cost solution, restricted to Internet access initially)
         - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: 0.0.0.0/0 }
-        # Dev direct access for UI
         - { IpProtocol: tcp, FromPort: 5173, ToPort: 5173, CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"] }
-        # Backend port
         - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
       SecurityGroupEgress:
         - { IpProtocol: -1, CidrIp: 0.0.0.0/0 }
@@ -216,11 +213,7 @@ Resources:
             yum update -y
             yum install -y git jq
             amazon-linux-extras install docker -y
-            
-            # Ensure Docker is started before proceeding
             systemctl enable --now docker
-            
-            # Wait for docker socket to be available
             for i in {1..10}; do [ -S /var/run/docker.sock ] && break || sleep 2; done
             
             if [ ! -f /swapfile ]; then
@@ -233,7 +226,6 @@ Resources:
             
             curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/bin/docker-compose
             chmod +x /usr/bin/docker-compose
-            
             usermod -a -G docker ec2-user
             
             ACCOUNT_ID=${AWS::AccountId}
@@ -247,18 +239,13 @@ Resources:
             [ -d "phoenix" ] || git clone https://github.com/primusa/phoenix.git
             cd phoenix
             git pull
-            
-            # Clean up old images to save space
             docker system prune -af
-            
-            # Pull latest images
             docker pull $ECR_REPO_URI:latest
             docker pull $ECR_UI_URI:latest
             
             export PHOENIX_ECR_URI="$ECR_REPO_URI"
             export PHOENIX_UI_ECR_URI="$ECR_UI_URI"
             
-            # Create override to use ECR images instead of building
             cat > docker-compose-override.yml <<EOF
             services:
               phoenix-backend:
@@ -267,24 +254,17 @@ Resources:
                 image: ${!PHOENIX_UI_ECR_URI}:latest
             EOF
 
-            # Start the actual stack
             /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml up -d
-            
-            # Give ownership to ec2-user so they can manage it via SSH
             chown -R ec2-user:ec2-user /opt/phoenix
-            
-            # Initialize DB and Setup Debezium
             echo "Initializing Database..."
             bash ./init-db.sh
-            
             echo "Setting up Debezium..."
             bash ./setup-debezium.sh
-            
             sleep 10
             /usr/bin/docker-compose ps
 
   ########################
-  # Resources
+  # EC2 / ASG Resources
   ########################
 
   PhoenixInstance:
@@ -300,9 +280,8 @@ Resources:
           Value: phoenix
         - Key: Name
           Value: phoenix-instance
-        # This ensures the instance is deleted BEFORE the route/association is touched.
         - Key: DeletionOrderDependency
-          Value: !If [CreatePublicSubnets, !Ref PublicSubnet1Association, "ExternalSubnet"]
+          Value: !If [CreatePublicSubnets, !Join ["-", [!Ref PublicSubnet1Association, !Ref PublicRoute]], "ExternalSubnet"]
 
   PhoenixLoadBalancer:
     Condition: UseALB
@@ -342,8 +321,54 @@ Resources:
       MaxSize: '1'
       DesiredCapacity: '1'
       TargetGroupARNs: [!Ref PhoenixTargetGroup]
-      Tags: [{ Key: project, Value: phoenix, PropagateAtLaunch: true }]
+      Tags:
+        - Key: project
+          Value: phoenix
+          PropagateAtLaunch: true
+        # Hidden dependency to ensure ASG instances are terminated before subnets
+        - Key: DeletionOrderDependency
+          Value: !If [CreatePublicSubnets, !Join ["-", [!Ref PublicSubnet1Association, !Ref PublicRoute]], "ExternalSubnet"]
+          PropagateAtLaunch: true
+
+  ########################
+  # API Gateway
+  ########################
+
+  PhoenixApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${AWS::StackName}-api"
+      ProtocolType: HTTP
+
+  PhoenixApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref PhoenixApi
+      IntegrationType: HTTP_PROXY
+      IntegrationUri: !If 
+        - UseALB
+        - !Sub "http://${PhoenixLoadBalancer.DNSName}"
+        - !Sub "http://${PhoenixInstance.PublicIp}:5173"
+      PayloadFormatVersion: "1.0"
+      IntegrationMethod: ANY
+
+  PhoenixApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref PhoenixApi
+      RouteKey: "ANY /{proxy+}"
+      Target: !Join ["/", ["integrations", !Ref PhoenixApiIntegration]]
+
+  PhoenixApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref PhoenixApi
+      StageName: "$default"
+      AutoDeploy: true
 
 Outputs:
   InstanceId: { Value: !If [NotUseALB, !Ref PhoenixInstance, "ASG managed"] }
-  Endpoint: { Value: !If [UseALB, !GetAtt PhoenixLoadBalancer.DNSName, !GetAtt PhoenixInstance.PublicIp] }
+  InstancePublicIp: { Condition: NotUseALB, Value: !GetAtt PhoenixInstance.PublicIp }
+  LoadBalancerDns: { Condition: UseALB, Value: !GetAtt PhoenixLoadBalancer.DNSName }
+  ApiGatewayUrl:
+    Value: !Sub "https://${PhoenixApi}.execute-api.${AWS::Region}.amazonaws.com"
