@@ -220,6 +220,10 @@ Resources:
               VolumeSize: 20
               VolumeType: gp3
               DeleteOnTermination: true
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: optional
+          HttpPutResponseHopLimit: 2
         TagSpecifications:
           - ResourceType: instance
             Tags: [{ Key: project, Value: phoenix }, { Key: deployment-id, Value: !Ref DeploymentId }]
