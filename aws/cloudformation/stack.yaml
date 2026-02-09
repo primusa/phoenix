@@ -20,12 +20,30 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-arm64-gp2
     Description: Latest Amazon Linux 2 ARM AMI ID
+  Environment:
+    Type: String
+    Default: development
+  CostCenter:
+    Type: String
+    Default: engineering
+  PhoenixServiceRepoName:
+    Type: String
+    Default: phoenix-service
+  PhoenixUiRepoName:
+    Type: String
+    Default: phoenix-ui
+  CreateALB:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Whether to create an ALB and ASG. If false, a single EC2 instance is created.
+
+Conditions:
+  UseALB: !Equals [ !Ref CreateALB, 'true' ]
+  NotUseALB: !Not [ !Condition UseALB ]
+
 
 Resources:
-  PhoenixEcrRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: phoenix-service
 
   PhoenixInstanceRole:
     Type: AWS::IAM::Role
@@ -41,6 +59,7 @@ Resources:
         - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
         - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
 
   PhoenixInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -50,14 +69,9 @@ Resources:
   PhoenixSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow HTTP, SSH, and docker-compose service ports
+      GroupDescription: Allow HTTP and docker-compose service ports (Access via SSM Session Manager)
       VpcId: !Ref VpcId
       SecurityGroupIngress:
-        # SSH
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: 0.0.0.0/0
         # HTTP
         - IpProtocol: tcp
           FromPort: 80
@@ -151,19 +165,17 @@ Resources:
 
   PhoenixLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Condition: UseALB
     Properties:
-      Name: phoenix-alb
       Scheme: internet-facing
       Type: application
       SecurityGroups: [ !Ref PhoenixSecurityGroup ]
-      Subnets:
-        - !Select [0, !Ref PublicSubnets]
-        - !Select [1, !Ref PublicSubnets]
+      Subnets: !Ref PublicSubnets
 
   PhoenixTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Condition: UseALB
     Properties:
-      Name: phoenix-targets
       Port: 8080
       Protocol: HTTP
       TargetType: instance
@@ -171,6 +183,7 @@ Resources:
 
   PhoenixListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: UseALB
     Properties:
       LoadBalancerArn: !Ref PhoenixLoadBalancer
       Port: 80
@@ -187,7 +200,11 @@ Resources:
         InstanceType: !Ref InstanceType
         IamInstanceProfile:
           Name: !Ref PhoenixInstanceProfile
-        SecurityGroupIds: [ !Ref PhoenixSecurityGroup ]
+        KeyName: !Ref KeyName
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            AssociatePublicIpAddress: true
+            Groups: [ !Ref PhoenixSecurityGroup ]
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash -xe
@@ -234,8 +251,8 @@ Resources:
             # 4. Use Native CFN Variables
             ACCOUNT_ID=${AWS::AccountId}
             REGION=${AWS::Region}
-            ECR_REPO_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/phoenix-service"
-            ECR_UI_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/phoenix-ui"
+            ECR_REPO_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/${PhoenixServiceRepoName}"
+            ECR_UI_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/${PhoenixUiRepoName}"
             
             # Login to ECR
             # 5. ECR Login
@@ -298,8 +315,25 @@ Resources:
             sleep 10
             docker-compose ps
 
+  PhoenixInstance:
+    Type: AWS::EC2::Instance
+    Condition: NotUseALB
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref PhoenixLaunchTemplate
+        Version: !GetAtt PhoenixLaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Select [0, !Ref PublicSubnets]
+          GroupSet: [ !Ref PhoenixSecurityGroup ]
+      Tags:
+        - Key: Name
+          Value: phoenix-instance
+
   PhoenixAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
+    Condition: UseALB
     Properties:
       VPCZoneIdentifier: !Ref PublicSubnets
       LaunchTemplate:
@@ -312,12 +346,20 @@ Resources:
         - !Ref PhoenixTargetGroup
 
 Outputs:
-  EcrRepositoryUri:
-    Value: !GetAtt PhoenixEcrRepository.RepositoryUri
-    Export:
-      Name: PhoenixEcrRepositoryUri
   LoadBalancerDns:
+    Condition: UseALB
     Description: DNS name of the Application Load Balancer
     Value: !GetAtt PhoenixLoadBalancer.DNSName
     Export:
       Name: PhoenixLoadBalancerDns
+  InstancePublicIp:
+    Condition: NotUseALB
+    Description: Public IP of the Phoenix EC2 instance
+    Value: !GetAtt PhoenixInstance.PublicIp
+    Export:
+      Name: PhoenixInstancePublicIp
+  InstanceId:
+    Description: Instance ID for SSM Session Manager connection
+    Value: !If [UseALB, "Check ASG for Instance ID", !Ref PhoenixInstance]
+    Export:
+      Name: PhoenixInstanceId
