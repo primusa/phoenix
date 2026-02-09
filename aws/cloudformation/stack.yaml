@@ -1,196 +1,193 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Phoenix service stack (ECR, ALB, AutoScalingGroup with single t4g.small instance)
+Description: Phoenix service stack (dev :- single EC2, prod :- ALB + ASG)
 
 Parameters:
-  KeyName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+  EnvironmentMode:
+    Type: String
+    AllowedValues: [development, production]
+    Default: development
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
   InstanceType:
     Type: String
     Default: t4g.small
-    AllowedValues: [t4g.small]
-    Description: EC2 instance type (t4g.small for free-tier style usage)
-  VpcId:
-    Type: AWS::EC2::VPC::Id
-    Description: VPC ID where instances should be launched
-  PublicSubnets:
-    Type: List<AWS::EC2::Subnet::Id>
-    Description: List of public subnet IDs (at least two) for the ALB and ASG
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Optional SSH access (SSM preferred)
+
   LatestAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-arm64-gp2
-    Description: Latest Amazon Linux 2 ARM AMI ID
-  Environment:
+
+  PublicSubnetIds:
+    Type: CommaDelimitedList
+    Default: ""
+
+  PrivateSubnetIds:
+    Type: CommaDelimitedList
+    Default: ""
+
+  InternetGatewayId:
     Type: String
-    Default: development
-  CostCenter:
+    Default: ""
+
+  DeploymentId:
     Type: String
-    Default: engineering
-  PhoenixServiceRepoName:
-    Type: String
-    Default: phoenix-service
-  PhoenixUiRepoName:
-    Type: String
-    Default: phoenix-ui
-  CreateALB:
-    Type: String
-    Default: 'false'
-    AllowedValues: ['true', 'false']
-    Description: Whether to create an ALB and ASG. If false, a single EC2 instance is created.
+    Default: "initial"
+
+  PublicSubnetCidr1: { Type: String, Default: 10.0.1.0/24 }
+  PublicSubnetCidr2: { Type: String, Default: 10.0.2.0/24 }
+  PrivateSubnetCidr1: { Type: String, Default: 10.0.10.0/24 }
+
+  PhoenixServiceRepoName: { Type: String, Default: phoenix-service }
+  PhoenixUiRepoName: { Type: String, Default: phoenix-ui }
+  CreateALB: { Type: String, Default: "false" }
 
 Conditions:
-  UseALB: !Equals [ !Ref CreateALB, 'true' ]
-  NotUseALB: !Not [ !Condition UseALB ]
-
+  IsProd: !Equals [!Ref EnvironmentMode, production]
+  UseALB: !Or [!Condition IsProd, !Equals [!Ref CreateALB, "true"]]
+  NotUseALB: !Not [!Condition UseALB]
+  
+  CreatePublicSubnets: !Equals [!Join ["", !Ref PublicSubnetIds], ""]
+  CreatePrivateSubnets: !Equals [!Join ["", !Ref PrivateSubnetIds], ""]
+  CreatePublicSubnet2: !And [!Condition CreatePublicSubnets, !Condition UseALB]
+  
+  CreateIGW: !Equals [!Ref InternetGatewayId, ""]
 
 Resources:
+
+  ########################
+  # Networking (IGW + Routes for Public Access)
+  ########################
+
+  GeneratedIGW:
+    Condition: CreateIGW
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{ Key: Name, Value: phoenix-igw }]
+
+  VPCGatewayAttachment:
+    Condition: CreateIGW
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VpcId
+      InternetGatewayId: !Ref GeneratedIGW
+
+  PublicRouteTable:
+    Condition: CreatePublicSubnets
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcId
+      Tags: [{ Key: Name, Value: phoenix-public-rt }]
+
+  PublicRoute:
+    Condition: CreatePublicSubnets
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !If [CreateIGW, !Ref GeneratedIGW, !Ref InternetGatewayId]
+
+  PublicSubnet1:
+    Condition: CreatePublicSubnets
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcId
+      CidrBlock: !Ref PublicSubnetCidr1
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags: [{ Key: Name, Value: phoenix-public-1 }]
+
+  PublicSubnet1Association:
+    Condition: CreatePublicSubnets
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2:
+    Condition: CreatePublicSubnet2
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcId
+      CidrBlock: !Ref PublicSubnetCidr2
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags: [{ Key: Name, Value: phoenix-public-2 }]
+
+  PublicSubnet2Association:
+    Condition: CreatePublicSubnet2
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnet1:
+    Condition: CreatePrivateSubnets
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcId
+      CidrBlock: !Ref PrivateSubnetCidr1
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags: [{ Key: Name, Value: phoenix-private-1 }]
+
+  ########################
+  # IAM
+  ########################
 
   PhoenixInstanceRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: [ec2.amazonaws.com]
-            Action: sts:AssumeRole
+        Statement: [{ Effect: Allow, Principal: { Service: ec2.amazonaws.com }, Action: sts:AssumeRole }]
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
         - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags: [{ Key: project, Value: phoenix }]
 
   PhoenixInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      Roles: [ !Ref PhoenixInstanceRole ]
+      Roles: [!Ref PhoenixInstanceRole]
 
-  PhoenixSecurityGroup:
+  ########################
+  # Security Groups
+  ########################
+
+  ALBSecurityGroup:
+    Condition: UseALB
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow HTTP and docker-compose service ports (Access via SSM Session Manager)
       VpcId: !Ref VpcId
+      GroupDescription: Public ALB access
       SecurityGroupIngress:
-        # HTTP
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-        # Phoenix Backend
-        - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          CidrIp: 0.0.0.0/0
-        # PostgreSQL
-        - IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
-          CidrIp: 0.0.0.0/0
-        # Kafka & Kafka JMX
-        - IpProtocol: tcp
-          FromPort: 29092
-          ToPort: 29092
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 9404
-          ToPort: 9404
-          CidrIp: 0.0.0.0/0
-        # Schema Registry
-        - IpProtocol: tcp
-          FromPort: 8081
-          ToPort: 8081
-          CidrIp: 0.0.0.0/0
-        # Debezium
-        - IpProtocol: tcp
-          FromPort: 8083
-          ToPort: 8083
-          CidrIp: 0.0.0.0/0
-        # Weaviate
-        - IpProtocol: tcp
-          FromPort: 8090
-          ToPort: 8090
-          CidrIp: 0.0.0.0/0
-        # Ollama
-        - IpProtocol: tcp
-          FromPort: 11434
-          ToPort: 11434
-          CidrIp: 0.0.0.0/0
-        # Prometheus
-        - IpProtocol: tcp
-          FromPort: 9090
-          ToPort: 9090
-          CidrIp: 0.0.0.0/0
-        # Node Exporter
-        - IpProtocol: tcp
-          FromPort: 9100
-          ToPort: 9100
-          CidrIp: 0.0.0.0/0
-        # Jaeger UI
-        - IpProtocol: tcp
-          FromPort: 16686
-          ToPort: 16686
-          CidrIp: 0.0.0.0/0
-        # Grafana & LGTM
-        - IpProtocol: tcp
-          FromPort: 3000
-          ToPort: 3000
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 3100
-          ToPort: 3100
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 3200
-          ToPort: 3200
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 4318
-          ToPort: 4319
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 4317
-          ToPort: 4317
-          CidrIp: 0.0.0.0/0
-        # OpenTelemetry Collector
-        - IpProtocol: tcp
-          FromPort: 8889
-          ToPort: 8889
-          CidrIp: 0.0.0.0/0
-        # Phoenix Frontend
-        - IpProtocol: tcp
-          FromPort: 5173
-          ToPort: 5173
-          CidrIp: 0.0.0.0/0
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0 }
 
-  PhoenixLoadBalancer:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Condition: UseALB
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
-      Scheme: internet-facing
-      Type: application
-      SecurityGroups: [ !Ref PhoenixSecurityGroup ]
-      Subnets: !Ref PublicSubnets
-
-  PhoenixTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Condition: UseALB
-    Properties:
-      Port: 8080
-      Protocol: HTTP
-      TargetType: instance
       VpcId: !Ref VpcId
+      GroupDescription: Phoenix instance group
+      SecurityGroupIngress:
+        # SSH for debugging (No-cost solution, restricted to Internet access initially)
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: 0.0.0.0/0 }
+        # Dev direct access for UI
+        - { IpProtocol: tcp, FromPort: 5173, ToPort: 5173, CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"] }
+        # Backend port
+        - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
+      SecurityGroupEgress:
+        - { IpProtocol: -1, CidrIp: 0.0.0.0/0 }
 
-  PhoenixListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Condition: UseALB
-    Properties:
-      LoadBalancerArn: !Ref PhoenixLoadBalancer
-      Port: 80
-      Protocol: HTTP
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref PhoenixTargetGroup
+  ########################
+  # Launch Template
+  ########################
 
   PhoenixLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
@@ -198,168 +195,155 @@ Resources:
       LaunchTemplateData:
         ImageId: !Ref LatestAmiId
         InstanceType: !Ref InstanceType
-        IamInstanceProfile:
-          Name: !Ref PhoenixInstanceProfile
+        IamInstanceProfile: { Name: !Ref PhoenixInstanceProfile }
         KeyName: !Ref KeyName
-        NetworkInterfaces:
-          - DeviceIndex: 0
-            AssociatePublicIpAddress: true
-            Groups: [ !Ref PhoenixSecurityGroup ]
+        SecurityGroupIds: [ !Ref InstanceSecurityGroup ]
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 20
+              VolumeType: gp3
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags: [{ Key: project, Value: phoenix }, { Key: deployment-id, Value: !Ref DeploymentId }]
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash -xe
-            set -e  # Exit immediately if a command fails
-            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1 # Log everything!
-  
-            echo "Starting Phoenix Bootstrap..."
+            set -e
+            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+            echo "Starting Phoenix Bootstrap (DeploymentId: ${DeploymentId})..."
+            yum update -y
+            yum install -y git jq
+            amazon-linux-extras install docker -y
             
-            # 1. System Prep
-            yum update -y || true
-            yum install -y docker git jq || true
+            # Ensure Docker is started before proceeding
+            systemctl enable --now docker
             
-            # Create 5GB swap memory to prevent OOM
-            # 2. Memory Management (Keep your 5GB Swap - it's a good move!)
+            # Wait for docker socket to be available
+            for i in {1..10}; do [ -S /var/run/docker.sock ] && break || sleep 2; done
+            
             if [ ! -f /swapfile ]; then
-            dd if=/dev/zero of=/swapfile bs=1G count=5
-            chmod 600 /swapfile
-            mkswap /swapfile
-            swapon /swapfile
-            echo '/swapfile none swap sw 0 0' >> /etc/fstab
+              dd if=/dev/zero of=/swapfile bs=1G count=5
+              chmod 600 /swapfile
+              mkswap /swapfile
+              swapon /swapfile
+              echo '/swapfile none swap sw 0 0' >> /etc/fstab
             fi
             
-            # Install docker-compose
-            # 3. Docker Config
-            curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
-            chmod +x /usr/local/bin/docker-compose || true
+            curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/bin/docker-compose
+            chmod +x /usr/bin/docker-compose
             
-            # Configure Docker daemon for better memory management
-            mkdir -p /etc/docker
-            cat > /etc/docker/daemon.json << 'EOF'
-            {
-              "storage-driver": "overlay2",
-              "log-driver": "json-file",
-              "log-opts": {
-                "max-size": "10m",
-                "max-file": "3"
-              }
-            }
-            EOF
+            usermod -a -G docker ec2-user
             
-            systemctl enable --now docker || service docker start || true
-            usermod -a -G docker ec2-user || true
-            
-            # 4. Use Native CFN Variables
             ACCOUNT_ID=${AWS::AccountId}
             REGION=${AWS::Region}
             ECR_REPO_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/${PhoenixServiceRepoName}"
             ECR_UI_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/${PhoenixUiRepoName}"
             
-            # Login to ECR
-            # 5. ECR Login
-            aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com || true
+            aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
             
-            # Clone or Update repository
             cd /opt
-            if [ ! -d "phoenix" ]; then
-              git clone https://github.com/primusa/phoenix.git
-            fi
+            [ -d "phoenix" ] || git clone https://github.com/primusa/phoenix.git
             cd phoenix
-            git pull || true
+            git pull
             
-            # Pull ECR images for phoenix backend and frontend
-            docker pull $ECR_REPO_URI:latest || true
-            docker pull $ECR_UI_URI:latest || true
+            # Clean up old images to save space
+            docker system prune -af
             
-            # Create override file - Note the ! used to escape Bash variables from CloudFormation !Sub
-            cat > docker-compose-override.yml << 'COMPOSE_EOF'
+            # Pull latest images
+            docker pull $ECR_REPO_URI:latest
+            docker pull $ECR_UI_URI:latest
+            
+            export PHOENIX_ECR_URI="$ECR_REPO_URI"
+            export PHOENIX_UI_ECR_URI="$ECR_UI_URI"
+            
+            # Create override to use ECR images instead of building
+            cat > docker-compose-override.yml <<EOF
             services:
               phoenix-backend:
                 image: ${!PHOENIX_ECR_URI}:latest
-                restart: unless-stopped
-                ports: [ "8080:8080" ]
-                environment:
-                  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-                  SPRING_KAFKA_PROPERTIES_ENABLE_METRICS_PUSH: "false"
-                  SPRING_AI_VECTORSTORE_WEAVIATE_HOST: weaviate:8080
-                  SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
-                  SPRING_DATASOURCE_URL: jdbc:postgresql://legacy-db:5432/insurance_corp
-                  SPRING_DATASOURCE_USERNAME: postgres
-                  SPRING_DATASOURCE_PASSWORD: postgres
-                  MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
-                  OTEL_DOTNET_AUTO_LOGS_INCLUDE_FORMATTED_MESSAGE: true
-                  OTEL_INSTRUMENTATION_COMMON_DEFAULT_ENABLED: true
-                  SPRING_AI_OLLAMA_CHAT_MODEL: tinyllama
-                  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
-                  MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-                  MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
-                  MANAGEMENT_OTLP_METRICS_EXPORT_STEP: "10s"
-                  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/logs
-                  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_ENABLED: "true"
-                  MANAGEMENT_OPENTELEMETRY_INSTRUMENTATION_LOGBACK_APPENDER_ENABLED: "true"
-                  LOGGING_STRUCTURED_FORMAT_CONSOLE: "otlp"
-                depends_on: [ kafka, legacy-db, weaviate, jaeger, otel-collector ]
-              
               phoenix-frontend:
                 image: ${!PHOENIX_UI_ECR_URI}:latest
-                restart: unless-stopped
-                ports: [ "5173:8080" ]
-                depends_on: [ phoenix-backend ]
-            COMPOSE_EOF
+            EOF
+
+            # Start the actual stack
+            /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml up -d
             
-            # Start docker-compose stack
-            export PHOENIX_ECR_URI="$ECR_REPO_URI"
-            export PHOENIX_UI_ECR_URI="$ECR_UI_URI"
-            docker-compose -f docker-compose.yml -f docker-compose-override.yml up -d
+            # Give ownership to ec2-user so they can manage it via SSH
+            chown -R ec2-user:ec2-user /opt/phoenix
             
-            # Health Check Log
+            # Initialize DB and Setup Debezium
+            echo "Initializing Database..."
+            bash ./init-db.sh
+            
+            echo "Setting up Debezium..."
+            bash ./setup-debezium.sh
+            
             sleep 10
-            docker-compose ps
+            /usr/bin/docker-compose ps
+
+  ########################
+  # Resources
+  ########################
 
   PhoenixInstance:
-    Type: AWS::EC2::Instance
     Condition: NotUseALB
+    Type: AWS::EC2::Instance
     Properties:
       LaunchTemplate:
         LaunchTemplateId: !Ref PhoenixLaunchTemplate
         Version: !GetAtt PhoenixLaunchTemplate.LatestVersionNumber
-      NetworkInterfaces:
-        - DeviceIndex: 0
-          AssociatePublicIpAddress: true
-          SubnetId: !Select [0, !Ref PublicSubnets]
-          GroupSet: [ !Ref PhoenixSecurityGroup ]
+      SubnetId: !If [CreatePublicSubnets, !Ref PublicSubnet1, !Select [0, !Ref PublicSubnetIds]]
       Tags:
+        - Key: project
+          Value: phoenix
         - Key: Name
           Value: phoenix-instance
+        # This ensures the instance is deleted BEFORE the route/association is touched.
+        - Key: DeletionOrderDependency
+          Value: !If [CreatePublicSubnets, !Ref PublicSubnet1Association, "ExternalSubnet"]
+
+  PhoenixLoadBalancer:
+    Condition: UseALB
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Type: application
+      Subnets: !If [CreatePublicSubnets, [!Ref PublicSubnet1, !Ref PublicSubnet2], !Ref PublicSubnetIds]
+      SecurityGroups: [!Ref ALBSecurityGroup]
+
+  PhoenixTargetGroup:
+    Condition: UseALB
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Port: 8080
+      Protocol: HTTP
+
+  PhoenixListener:
+    Condition: UseALB
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref PhoenixLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions: [{ Type: forward, TargetGroupArn: !Ref PhoenixTargetGroup }]
 
   PhoenixAutoScalingGroup:
-    Type: AWS::AutoScaling::AutoScalingGroup
     Condition: UseALB
+    Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
-      VPCZoneIdentifier: !Ref PublicSubnets
+      VPCZoneIdentifier: !If [IsProd, !If [CreatePrivateSubnets, [!Ref PrivateSubnet1], !Ref PrivateSubnetIds], !If [CreatePublicSubnets, [!Ref PublicSubnet1], !Ref PublicSubnetIds]]
       LaunchTemplate:
         LaunchTemplateId: !Ref PhoenixLaunchTemplate
         Version: !GetAtt PhoenixLaunchTemplate.LatestVersionNumber
       MinSize: '1'
       MaxSize: '1'
       DesiredCapacity: '1'
-      TargetGroupARNs:
-        - !Ref PhoenixTargetGroup
+      TargetGroupARNs: [!Ref PhoenixTargetGroup]
+      Tags: [{ Key: project, Value: phoenix, PropagateAtLaunch: true }]
 
 Outputs:
-  LoadBalancerDns:
-    Condition: UseALB
-    Description: DNS name of the Application Load Balancer
-    Value: !GetAtt PhoenixLoadBalancer.DNSName
-    Export:
-      Name: PhoenixLoadBalancerDns
-  InstancePublicIp:
-    Condition: NotUseALB
-    Description: Public IP of the Phoenix EC2 instance
-    Value: !GetAtt PhoenixInstance.PublicIp
-    Export:
-      Name: PhoenixInstancePublicIp
-  InstanceId:
-    Description: Instance ID for SSM Session Manager connection
-    Value: !If [UseALB, "Check ASG for Instance ID", !Ref PhoenixInstance]
-    Export:
-      Name: PhoenixInstanceId
+  InstanceId: { Value: !If [NotUseALB, !Ref PhoenixInstance, "ASG managed"] }
+  Endpoint: { Value: !If [UseALB, !GetAtt PhoenixLoadBalancer.DNSName, !GetAtt PhoenixInstance.PublicIp] }

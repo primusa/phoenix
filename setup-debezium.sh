@@ -1,4 +1,4 @@
-./se#!/bin/bash
+#!/bin/bash
 echo "Waiting for Debezium to be ready..."
 until curl -s -f -o /dev/null localhost:8083; do
   echo "Debezium is unavailable - sleeping"
