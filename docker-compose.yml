@@ -15,6 +15,11 @@ services:
       - "max_replication_slots=5"     # Allows Debezium to create a slot
       - "-c"
       - "max_wal_senders=5"           # Allows the background process to send data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d insurance_corp" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # 2. Kafka KRaft (Latest 8.1 / Kafka 4.1 equivalent). The Bridge (Debezium + Kafka)
   kafka:
@@ -39,14 +44,17 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      JMX_PORT: 9404
+      KAFKA_JMX_OPTS: "-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false"
       # Memory Optimization
       KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
-      KAFKA_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9404:/etc/kafka/kafka-jmx-config.yml"
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
-      interval: 5s
-      timeout: 10s
-      retries: 5
+      # We use 9092 because it is the internal PLAINTEXT listener
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s      # Check every 10s
+      timeout: 10s       # Give the command 10s to respond
+      retries: 10        # Be patient (total wait up to 100s)
+      start_period: 20s  # Don't even start checking for 20 seconds
 
   #  schema-registry:
   #    image: confluentinc/cp-schema-registry:7.6.0
@@ -65,7 +73,7 @@ services:
       kafka:
         condition: service_healthy # Wait for Kafka to be fully functional, not just 'started'
       legacy-db:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "8083:8083"
     environment:
