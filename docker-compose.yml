@@ -42,6 +42,11 @@ services:
       # Memory Optimization
       KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
       KAFKA_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9404:/etc/kafka/kafka-jmx-config.yml"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
 
   #  schema-registry:
   #    image: confluentinc/cp-schema-registry:7.6.0
