@@ -51,6 +51,8 @@ jobs:
 
   publish:
     needs: build
+    # Runs on pushes to main OR any manual trigger
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4 # Keep this for the Dockerfiles
@@ -89,8 +91,8 @@ jobs:
     needs: publish
     runs-on: ubuntu-latest
     environment: production
-    # Logic fix: Check for push OR the boolean input
-    if: github.event_name == 'push' || github.event.inputs.deploy == true
+    # Only deploy on push OR if manually requested via the checkbox
+    if: github.event_name == 'push' || inputs.deploy
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/aws-auth
