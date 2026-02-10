@@ -44,9 +44,14 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      JMX_PORT: 9404
-      KAFKA_JMX_OPTS: "-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false"
-      # Memory Optimization
+      # 1. Use EXTRA_ARGS instead of KAFKA_OPTS to avoid internal script conflicts
+      KAFKA_JVM_PERFORMANCE_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9404:/etc/kafka/kafka-jmx-config.yml"
+
+      # 2. Ensure standard JMX doesn't conflict with our Prometheus port
+      # We move standard JMX to a different port or disable its remote binding
+      KAFKA_JMX_PORT: 9999
+
+      # 3. Memory
       KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
     healthcheck:
       # We use 9092 because it is the internal PLAINTEXT listener
