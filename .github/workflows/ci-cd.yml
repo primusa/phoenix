@@ -8,7 +8,7 @@ on:
       deploy:
         description: 'Trigger deployment'
         required: false
-        default: 'true'
+        default: true
         type: boolean # Changed to boolean for easier if-checks
 
 env:

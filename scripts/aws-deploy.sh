@@ -48,7 +48,23 @@ fi
 PRIVATE_SUBNET_ARRAY=$(aws ec2 describe-subnets --region "$REGION" --filters "Name=vpc-id,Values=$VPC_ID" "Name=map-public-ip-on-launch,Values=false" --query 'Subnets[*].SubnetId' --output text)
 PRIVATE_SUBNETS=$(echo $PRIVATE_SUBNET_ARRAY | sed 's/ /,/g')
 
-# 4. Deployment ID
+# 4. Check for existing Public Route (0.0.0.0/0 -> IGW)
+# We check the first public subnet's route table
+CREATE_ROUTE="true"
+if [ -n "$PUBLIC_SUBNETS" ]; then
+  FIRST_SUBNET=$(echo "$PUBLIC_SUBNETS" | cut -d',' -f1)
+  RT_ID=$(aws ec2 describe-route-tables --region "$REGION" --filters "Name=association.subnet-id,Values=$FIRST_SUBNET" --query 'RouteTables[0].RouteTableId' --output text)
+  
+  if [ "$RT_ID" != "None" ] && [ -n "$RT_ID" ]; then
+    HAS_IGW_ROUTE=$(aws ec2 describe-route-tables --region "$REGION" --route-table-ids "$RT_ID" --query 'RouteTables[0].Routes[?DestinationCidrBlock==`0.0.0.0/0` && GatewayId != `null`].GatewayId' --output text)
+    if [ -n "$HAS_IGW_ROUTE" ] && [ "$HAS_IGW_ROUTE" != "None" ]; then
+      echo "✅ Existing public route found in $RT_ID. Skipping route creation."
+      CREATE_ROUTE="false"
+    fi
+  fi
+fi
+
+# 5. Deployment ID
 DEPLOYMENT_ID=$(date +%s)
 
 # Stack Status Check & Waiting
@@ -78,6 +94,7 @@ PARAMS=(
   "CreateALB=$CREATE_ALB"
   "InstanceType=$INSTANCE_TYPE"
   "DeploymentId=$DEPLOYMENT_ID"
+  "CreatePublicRoute=$CREATE_ROUTE"
 )
 
 [[ -n "$IGW_ID" ]] && PARAMS+=("InternetGatewayId=$IGW_ID")

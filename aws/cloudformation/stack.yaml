@@ -32,7 +32,7 @@ Parameters:
 
   InternetGatewayId:
     Type: String
-    Default: ""
+    Default: "NONE"
 
   DeploymentId:
     Type: String
@@ -45,6 +45,7 @@ Parameters:
   PhoenixServiceRepoName: { Type: String, Default: phoenix-service }
   PhoenixUiRepoName: { Type: String, Default: phoenix-ui }
   CreateALB: { Type: String, Default: "false" }
+  CreatePublicRoute: { Type: String, Default: "true" }
 
 Conditions:
   IsProd: !Equals [!Ref EnvironmentMode, production]
@@ -53,9 +54,10 @@ Conditions:
   
   CreatePublicSubnets: !Equals [!Join ["", !Ref PublicSubnetIds], ""]
   CreatePrivateSubnets: !Equals [!Join ["", !Ref PrivateSubnetIds], ""]
-  CreatePublicSubnet2: !And [!Condition CreatePublicSubnets, !Condition UseALB]
   
-  CreateIGW: !Equals [!Ref InternetGatewayId, ""]
+  CreatePublicSubnet2: !And [!Condition CreatePublicSubnets, !Condition UseALB]
+  CreateIGW: !Equals [!Ref InternetGatewayId, "NONE"]
+  NotCreateIGW: !Not [!Condition CreateIGW]
 
 Resources:
 
@@ -79,23 +81,31 @@ Resources:
       InternetGatewayId: !Ref GeneratedIGW
 
   PublicRouteTable:
-    Condition: CreatePublicSubnets
-    DeletionPolicy: Retain
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VpcId
       Tags: [{ Key: Name, Value: phoenix-public-rt }]
 
-  PublicRoute:
-    Condition: CreatePublicSubnets
-    DeletionPolicy: Retain
+  PublicRouteNewIGW:
+    Condition: CreateIGW
     Type: AWS::EC2::Route
-    # We depend on the attachment (if new) and the table itself
+    # Explicitly wait for the attachment to ensure the VPC is ready for the route
     DependsOn: [VPCGatewayAttachment, PublicRouteTable]
     Properties:
       RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !If [CreateIGW, !Ref GeneratedIGW, !Ref InternetGatewayId]
+      GatewayId: !Ref GeneratedIGW
+
+  PublicRouteExistingIGW:
+    Condition: NotCreateIGW
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Type: AWS::EC2::Route
+    DependsOn: [PublicRouteTable]
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGatewayId
 
   PublicSubnet1:
     Condition: CreatePublicSubnets
@@ -109,10 +119,9 @@ Resources:
       Tags: [{ Key: Name, Value: phoenix-public-1 }]
 
   PublicSubnet1Association:
-    Condition: CreatePublicSubnets
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref PublicSubnet1
+      SubnetId: !If [CreatePublicSubnets, !Ref PublicSubnet1, !Select [0, !Ref PublicSubnetIds]]
       RouteTableId: !Ref PublicRouteTable
 
   PublicSubnet2:
@@ -218,7 +227,7 @@ Resources:
         BlockDeviceMappings:
           - DeviceName: /dev/xvda
             Ebs:
-              VolumeSize: 20
+              VolumeSize: 29
               VolumeType: gp3
               DeleteOnTermination: true
         MetadataOptions:
@@ -241,7 +250,7 @@ Resources:
             for i in {1..10}; do [ -S /var/run/docker.sock ] && break || sleep 2; done
             
             if [ ! -f /swapfile ]; then
-              dd if=/dev/zero of=/swapfile bs=1G count=5
+              dd if=/dev/zero of=/swapfile bs=1G count=18
               chmod 600 /swapfile
               mkswap /swapfile
               swapon /swapfile
@@ -305,7 +314,7 @@ Resources:
         - Key: Name
           Value: phoenix-instance
         - Key: DeletionOrderDependency
-          Value: !If [CreatePublicSubnets, !Join ["-", [!Ref PublicSubnet1Association, !Ref PublicRoute]], "ExternalSubnet"]
+          Value: !If [CreatePublicSubnets, !Join ["-", [!Ref PublicSubnet1Association, !If [CreateIGW, !Ref PublicRouteNewIGW, !Ref PublicRouteExistingIGW]]], "ExternalSubnet"]
 
   PhoenixLoadBalancer:
     Condition: UseALB
@@ -418,7 +427,7 @@ Resources:
           Value: phoenix
           PropagateAtLaunch: true
         - Key: DeletionOrderDependency
-          Value: !If [CreatePublicSubnets, !Join ["-", [!Ref PublicSubnet1Association, !Ref PublicRoute]], "ExternalSubnet"]
+          Value: !If [CreatePublicSubnets, !Join ["-", [!Ref PublicSubnet1Association, !If [CreateIGW, !Ref PublicRouteNewIGW, !Ref PublicRouteExistingIGW]]], "ExternalSubnet"]
           PropagateAtLaunch: true
 
   ########################
@@ -515,7 +524,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
       ApiId: !Ref PhoenixApi
-      StageName: "$default"
+      StageName: "app"
       AutoDeploy: true
 
 Outputs:
@@ -523,4 +532,4 @@ Outputs:
   InstancePublicIp: { Condition: NotUseALB, Value: !GetAtt PhoenixInstance.PublicIp }
   LoadBalancerDns: { Condition: UseALB, Value: !GetAtt PhoenixLoadBalancer.DNSName }
   ApiGatewayUrl:
-    Value: !Sub "https://${PhoenixApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Value: !Sub "https://${PhoenixApi}.execute-api.${AWS::Region}.amazonaws.com/app/"

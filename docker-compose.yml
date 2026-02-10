@@ -10,16 +10,20 @@ services:
     command:
       - "postgres"
       - "-c"
-      - "wal_level=logical" # Mandatory for CDC
+      - "wal_level=logical"           # Required for CDC
+      - "-c"
+      - "max_replication_slots=5"     # Allows Debezium to create a slot
+      - "-c"
+      - "max_wal_senders=5"           # Allows the background process to send data
 
   # 2. Kafka KRaft (Latest 8.1 / Kafka 4.1 equivalent). The Bridge (Debezium + Kafka)
   kafka:
-    image: confluentinc/cp-kafka:8.1.0
+    image: confluentinc/cp-kafka:7.6.0 # 8.1.0 is quite new; 7.6.0 is the current stable target for most Debezium builds
+    container_name: kafka
     ports:
       - "29092:29092"
-      - "9404:9404" # 1. Expose the Prometheus scrape port
+      - "9404:9404"
     volumes:
-      # 2. Mount the agent and the config file
       - ./jmx_prometheus_javaagent.jar:/usr/share/java/kafka/jmx_prometheus_javaagent.jar
       - ./kafka-jmx-config.yml:/etc/kafka/kafka-jmx-config.yml
     environment:
@@ -33,31 +37,45 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      # 3. Attach the agent to the Kafka process
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      # Memory Optimization
+      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
       KAFKA_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9404:/etc/kafka/kafka-jmx-config.yml"
 
-  schema-registry:
-    image: confluentinc/cp-schema-registry:8.1.0
-    depends_on: [ kafka ]
-    ports: [ "8081:8081" ]
-    environment:
-      SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
-      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+  #  schema-registry:
+  #    image: confluentinc/cp-schema-registry:7.6.0
+  #    depends_on: [ kafka ]
+  #    ports: [ "8081:8081" ]
+  #    environment:
+  #      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+  #      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+  #      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
 
   # 3. CDC & Connect
   debezium:
-    image: quay.io/debezium/connect:latest
-    depends_on: [ kafka, legacy-db ]
-    ports: [ "8083:8083" ]
+    image: quay.io/debezium/connect:2.5 # Using a specific version
+    container_name: debezium
+    depends_on:
+      kafka:
+        condition: service_healthy # Wait for Kafka to be fully functional, not just 'started'
+      legacy-db:
+        condition: service_started
+    ports:
+      - "8083:8083"
     environment:
       BOOTSTRAP_SERVERS: kafka:9092
-      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
-      GROUP_ID: 1
-      CONFIG_STORAGE_TOPIC: my_connect_configs
-      OFFSET_STORAGE_TOPIC: my_connect_offsets
-      STATUS_STORAGE_TOPIC: my_connect_statuses
-      # Suppress the Telemetry Exception
+      GROUP_ID: "debezium-cluster"
+      CONFIG_STORAGE_TOPIC: "debezium_configs"
+      OFFSET_STORAGE_TOPIC: "debezium_offsets"
+      STATUS_STORAGE_TOPIC: "debezium_statuses"
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1 # Stores the last "Position" (LSN) read from Postgres.	Debezium restarts from the beginning of time (re-reads everything).
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1 # Stores the connector JSON settings.	You have to POST your connector config every single time you restart.
+      STATUS_STORAGE_REPLICATION_FACTOR: 1 # Stores the current state (RUNNING/FAILED).	Monitoring tools (and your JMX agent) won't show the correct status.
+      # Fast Boot Optimizations
+      KAFKA_HEAP_OPTS: "-Xmx2G -Xms2G"
+      CONNECT_PLUGIN_PATH: "/kafka/connect/debezium-connector-postgresql"
+      # Suppress Telemetry
       CONNECT_PRODUCER_ENABLE_METRICS_PUSH: "false"
       CONNECT_CONSUMER_ENABLE_METRICS_PUSH: "false"
 

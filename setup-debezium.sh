@@ -1,12 +1,14 @@
 #!/bin/bash
 echo "Waiting for Debezium to be ready..."
-until curl -s -f -o /dev/null localhost:8083; do
+# Added -m 5 to curl so it doesn't hang if the network is flaky
+until curl -s -f -m 5 -o /dev/null http://localhost:8083; do
   echo "Debezium is unavailable - sleeping"
   sleep 2
 done
 
-echo "Registering connector..."
-curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" localhost:8083/connectors/ -d '{
+echo "Registering insurance-connector..."
+curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" \
+  http://localhost:8083/connectors/ -d '{
   "name": "insurance-connector",
   "config": {
     "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
@@ -15,10 +17,15 @@ curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" 
     "database.user": "postgres",
     "database.password": "postgres",
     "database.dbname": "insurance_corp",
-    "database.server.name": "legacy",
     "topic.prefix": "legacy",
     "table.include.list": "public.claims",
     "plugin.name": "pgoutput",
-    "slot.name": "debezium_slot"
+    "slot.name": "insurance_slot",
+    "publication.autocreate.mode": "filtered",
+    "snapshot.mode": "initial"
+    # snapshot.mode
+    # initial (Default) Reads all existing data + captures new changes.
+     # never	Skips existing data; only captures changes from now onwards.
+     # always	Performs a full snapshot every time the connector restarts.
   }
 }'

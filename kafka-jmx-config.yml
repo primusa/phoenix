@@ -1,14 +1,14 @@
 lowercaseOutputName: true
 rules:
-- pattern : 'kafka.server<type=ReplicaManager, name=(.+)><>(Value|Count)'
-  name: "kafka_server_replicamanager_$1"
-- pattern : 'kafka.server<type=BrokerTopicMetrics, name=(.+)><>(Count|OneMinuteRate)'
-  name: "kafka_server_brokertopicmetrics_$1"
-- pattern : 'kafka.network<type=RequestMetrics, name=(.+), request=(.+)><>(Count|OneMinuteRate)'
-  name: "kafka_network_requestmetrics_$1"
+# Kafka Connect Worker Metrics
+- pattern: "kafka.connect<type=connect-worker-metrics>([^:]+):"
+  name: "kafka_connect_worker_metrics_$1"
+# Debezium Connector Metrics (Postgres)
+- pattern: "debezium.postgres<type=connector-metrics, context=([^,]+), server=([^>]+)>([^:]+):"
+  name: "debezium_metrics_$3"
   labels:
-    request: "$2"
-- pattern : 'kafka.controller<type=KafkaController, name=(.+)><>(Value|Count)'
-  name: "kafka_controller_kafkacontroller_$1"
-- pattern : 'kafka.log<type=LogFlushStats, name=(.+)><>(Count|OneMinuteRate)'
-  name: "kafka_log_logflushstats_$1"
+    context: "$1"
+    server: "$2"
+# Standard JVM Metrics
+- pattern: "java.lang<type=Memory><>HeapMemoryUsage"
+  name: "jvm_memory_heap_usage"
