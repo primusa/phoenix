@@ -250,7 +250,7 @@ Resources:
             for i in {1..10}; do [ -S /var/run/docker.sock ] && break || sleep 2; done
             
             if [ ! -f /swapfile ]; then
-              dd if=/dev/zero of=/swapfile bs=1G count=12
+              dd if=/dev/zero of=/swapfile bs=1G count=4
               chmod 600 /swapfile
               mkswap /swapfile
               swapon /swapfile
