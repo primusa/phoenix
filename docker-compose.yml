@@ -24,15 +24,16 @@ services:
   # 2. Kafka KRaft (Latest 8.1 / Kafka 4.1 equivalent). The Bridge (Debezium + Kafka)
   kafka:
     image: confluentinc/cp-kafka:8.1.0
+    container_name: kafka
     shm_size: 2g
     ports:
-      - "29092:29092"
-      - "9404:9404" # 1. Expose the Prometheus scrape port
+      - "29092:29092"  # Internal PLAINTEXT_HOST
+      - "9404:9404"    # Prometheus JMX agent
     volumes:
-      # 2. Mount the agent and the config file
       - ./jmx_prometheus_javaagent.jar:/usr/share/java/kafka/jmx_prometheus_javaagent.jar
       - ./kafka-jmx-config.yml:/etc/kafka/kafka-jmx-config.yml
     environment:
+      # Kafka node & cluster configuration
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: 'broker,controller'
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
@@ -43,9 +44,17 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      # 3. Attach the agent to the Kafka process
-      KAFKA_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9404:/etc/kafka/kafka-jmx-config.yml"
+
+      # JVM / memory settings
       KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
+      KAFKA_JVM_PERFORMANCE_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9404:/etc/kafka/kafka-jmx-config.yml"
+
+      # Redirect temp files to a location with enough space
+      KAFKA_OPTS: "-Djava.io.tmpdir=/tmp/java"
+
+    # Ensure the temp directory exists in container
+    command: [ "bash", "-c", "mkdir -p /tmp/java && /etc/confluent/docker/run" ]
+
     healthcheck:
       # We use 9092 because it is the internal PLAINTEXT listener
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
