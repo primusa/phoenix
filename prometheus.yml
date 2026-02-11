@@ -10,9 +10,9 @@ scrape_configs:
   # 2. Kafka JMX Exporter
   # Scrapes internal Kafka metrics translated into Prometheus format
   # Translates internal Kafka MBeans to Prometheus format
-  - job_name: 'kafka'
-    static_configs:
-      - targets: ['kafka:9405']
+#  - job_name: 'kafka'
+#    static_configs:
+#      - targets: ['kafka:9405']
 
   # It's required for the 'System' panels in the dashboard
   - job_name: 'node-exporter'
