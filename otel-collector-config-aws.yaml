@@ -1,0 +1,53 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    send_batch_size: 1000
+    timeout: 10s
+  transform/span_metrics:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["operation"], attributes["span_name"]) where metric.name == "span_metrics_calls_total" or metric.name == "span_metrics_latency_bucket"
+          - set(attributes["service"], attributes["service_name"]) where metric.name == "span_metrics_calls_total" or metric.name == "span_metrics_latency_bucket"
+          - delete_key(attributes, "span_name")
+          - delete_key(attributes, "service_name")
+
+connectors:
+  spanmetrics:
+    namespace: span_metrics
+    dimensions:
+      - name: http.method
+      - name: http.status_code
+      - name: rpc.system
+      - name: rpc.service
+      - name: rpc.method
+    histogram:
+      unit: ms
+      explicit:
+        buckets: [ 2ms, 10ms, 50ms, 250ms, 1s, 5s ]
+
+exporters:
+  # otlp/jaeger:
+  #   endpoint: jaeger:4317
+  #   tls: { insecure: true }
+
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [spanmetrics] # output only to metrics generation, drop actual spans to save space
+    metrics/spanmetrics:
+      receivers: [otlp, spanmetrics]
+      processors: [transform/span_metrics, batch]
+      exporters: [prometheus]

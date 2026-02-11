@@ -2,6 +2,7 @@ package com.example.phoenix.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,7 +14,6 @@ import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.vertexai.gemini.VertexAiGeminiChatModel;
 import org.springframework.context.ApplicationContext;
-import java.util.concurrent.CompletableFuture;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.KafkaHeaders;
@@ -115,7 +115,8 @@ public class ClaimModernizationService {
                     // Add metadata to the trace span
                     enrichmentObs.lowCardinalityKeyValue("claim.id", String.valueOf(claimId));
 
-                    if (after.has("summary") && !after.get("summary").isNull() && !after.get("summary").asText().isEmpty()) {
+                    if (after.has("summary") && !after.get("summary").isNull()
+                            && !after.get("summary").asText().isEmpty()) {
                         log.debug("Claim {} already has a summary. Skipping.", claimId);
                         return;
                     }
@@ -134,8 +135,7 @@ public class ClaimModernizationService {
                     // 1. Save to Vector DB
                     try {
                         List<Document> docs = List.of(
-                                new Document(summary, Map.of("source", "legacy_db", "claim_id", claimId))
-                        );
+                                new Document(summary, Map.of("source", "legacy_db", "claim_id", claimId)));
                         this.vectorStoreManager.get().store().add(docs);
 
                         // Explicitly log the Vector Sync event for Jaeger

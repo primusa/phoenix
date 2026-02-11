@@ -1,7 +1,7 @@
 services:
   # 1. Legacy Source (PostgreSQL)
   legacy-db:
-    image: postgres:15
+    image: postgres:15-alpine
     ports: [ "5432:5432" ]
     environment:
       POSTGRES_USER: postgres
@@ -46,7 +46,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
       # JVM / memory settings
-      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
+      KAFKA_HEAP_OPTS: "-Xmx400M -Xms400M"
       #   KAFKA_JVM_PERFORMANCE_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9405:/etc/kafka/kafka-jmx-config.yml"
 
       # Redirect temp files to a location with enough space
@@ -93,7 +93,7 @@ services:
       OFFSET_STORAGE_REPLICATION_FACTOR: 1 # Stores the connector JSON settings.	You have to POST your connector config every single time you restart.
       STATUS_STORAGE_REPLICATION_FACTOR: 1 # Stores the current state (RUNNING/FAILED).	Monitoring tools (and your JMX agent) won't show the correct status.
       # Fast Boot Optimizations
-      KAFKA_HEAP_OPTS: "-Xmx2G -Xms2G"
+      KAFKA_HEAP_OPTS: "-Xmx400M -Xms400M"
       # Suppress Telemetry
       CONNECT_PRODUCER_ENABLE_METRICS_PUSH: "false"
       CONNECT_CONSUMER_ENABLE_METRICS_PUSH: "false"
@@ -109,6 +109,7 @@ services:
 
   # 4. Local AI (Ollama) - Optional
   ollama:
+    # profiles: [ "local" ]
     image: alpine/ollama:latest
     # For local development, you can build the Ollama image with your custom models and use that instead. 
     # Just ensure the image is tagged as 'alpine/ollama:latest' or update the reference here.
@@ -217,6 +218,27 @@ services:
       # Mount actual JSON dashboard files
       - ./grafana/dashboards:/var/lib/grafana/dashboards
 
+  # Replacement for LGTM in AWS (Lighter)
+  grafana:
+    profiles: [ "aws" ]
+    image: grafana/grafana:10.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_SECURITY_COOKIE_SAMESITE=none
+      - GF_SECURITY_COOKIE_SECURE=false
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s:%(http_port)s/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on: [ prometheus ]
+
   # --- THE BRAIN: OpenTelemetry Collector ---
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
@@ -227,7 +249,7 @@ services:
       - "4317:4317" # OTLP gRPC
       - "4318:4318" # OTLP HTTP
       - "8889:8889" # Prometheus exporter
-    depends_on: [ jaeger, lgtm, prometheus ]
+    depends_on: [ prometheus ]
 
   # 6. Backend Service
   phoenix-backend:
@@ -266,7 +288,7 @@ services:
       MANAGEMENT_OPENTELEMETRY_INSTRUMENTATION_LOGBACK_APPENDER_ENABLED: "true"
       LOGGING_STRUCTURED_FORMAT_CONSOLE: "otlp"
 
-    depends_on: [ kafka, legacy-db, weaviate, jaeger, otel-collector ]
+    depends_on: [ kafka, legacy-db, weaviate, otel-collector ]
 
   # 7. Frontend UI
   phoenix-frontend:

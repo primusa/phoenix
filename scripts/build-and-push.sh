@@ -19,13 +19,16 @@ done
 if [ "$CLEANUP" = "true" ]; then
   echo "⚠️ CLEANUP=true: Wiping existing images from repositories..."
   for repo in "${REPOS[@]}"; do
-    # Get all image digests
+    echo "Checking $repo for images..."
+    # Get all image digests in a format batch-delete-image understands
     DIGESTS=$(aws ecr list-images --repository-name "$repo" --region "$REGION" --query 'imageIds[*]' --output json)
 
-    # Only attempt delete if repo is not empty
-    if [ "$DIGESTS" != "[]" ]; then
+    if [ "$DIGESTS" != "[]" ] && [ "$DIGESTS" != "" ]; then
       echo "Deleting images in $repo..."
-      aws ecr batch-delete-image --repository-name "$repo" --region "$REGION" --image-ids "$DIGESTS" >/dev/null
+      # Use the json input directly to batch-delete-image
+      aws ecr batch-delete-image --repository-name "$repo" --region "$REGION" --image-ids "$DIGESTS" >/dev/null || echo "Some images could not be deleted"
+    else
+      echo "No images found in $repo."
     fi
   done
 else
@@ -33,11 +36,19 @@ else
 fi
 
 # 3. Build and Push
-docker buildx create --use --driver docker-container || true
+# (The GitHub Action 'docker/setup-buildx-action' handles builder creation)
+echo "Starting Docker builds..."
 
 for repo in "${REPOS[@]}"; do
   URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$repo"
-  echo "Building and pushing $repo..."
-  docker buildx build --platform linux/arm64,linux/amd64 -t "$URI:latest" --push "./$repo"
-  echo "Published $URI:latest"
+  echo "Building and pushing $repo for linux/amd64 and linux/arm64..."
+  
+  # --load won't work with multi-platform, so we use --push directly
+  docker buildx build \
+    --platform linux/arm64,linux/amd64 \
+    -t "$URI:latest" \
+    --push \
+    "./$repo"
+    
+  echo "✅ Published $URI:latest"
 done

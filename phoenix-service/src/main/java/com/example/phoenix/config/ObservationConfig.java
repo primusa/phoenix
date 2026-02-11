@@ -19,7 +19,7 @@ public class ObservationConfig {
             @Override
             public void onStart(Observation.Context context) {
                 // This ensures "claim.id" becomes a tag in the distributed trace
-                log.debug("Starting Observation: {}", context.getName());
+                // log.debug("Starting Observation: {}", context.getName());
             }
 
             @Override
