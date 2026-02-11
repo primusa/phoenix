@@ -47,6 +47,7 @@ function App() {
 
   useEffect(() => {
     const syncGrafana = async () => {
+      if (!isLocal) return;
       try {
         const res = await axios.get(`${API_BASE}/monitoring/dashboards`);
         const jvmDash = res.data.find(d =>
@@ -144,7 +145,7 @@ function App() {
       <nav className="fixed left-0 top-0 h-full w-20 bg-slate-900 flex flex-col items-center py-8 gap-8 z-[100]">
         <div className="p-3 bg-indigo-600 rounded-xl shadow-lg"><Brain className="w-8 h-8 text-white" /></div>
         <button onClick={() => setView('app')} className={`p-3 rounded-xl transition-all ${view === 'app' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-white'}`}><LayoutDashboard className="w-6 h-6" /></button>
-        <button onClick={() => setView('monitoring')} className={`p-3 rounded-xl transition-all ${view === 'monitoring' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-white'}`}><Activity className="w-6 h-6" /></button>
+        {isLocal && <button onClick={() => setView('monitoring')} className={`p-3 rounded-xl transition-all ${view === 'monitoring' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-white'}`}><Activity className="w-6 h-6" /></button>}
       </nav>
 
       <main className="pl-20 p-8 h-screen flex flex-col overflow-hidden">
@@ -259,9 +260,11 @@ function App() {
                         <div className="flex justify-between items-start mb-3">
                           <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">#CLAIM_ID_{c.id}</span>
                           <div className="flex gap-2 relative">
-                            <button onClick={() => openTrace(c.traceId)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[8px] font-black border border-slate-200 hover:bg-indigo-600 hover:text-white transition-all">
-                              <Link2 className="w-2.5 h-2.5" /> TRACE
-                            </button>
+                            {isLocal && (
+                              <button onClick={() => openTrace(c.traceId)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[8px] font-black border border-slate-200 hover:bg-indigo-600 hover:text-white transition-all">
+                                <Link2 className="w-2.5 h-2.5" /> TRACE
+                              </button>
+                            )}
                             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[8px] font-black border border-amber-100 group/tip cursor-help relative">
                               <Lock className="w-2.5 h-2.5" /> PII BYPASSED <HelpCircle className="w-2 h-2" />
                               <div className={`absolute right-0 w-64 p-3 bg-slate-900 text-slate-200 rounded-xl shadow-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none font-normal z-[200] border border-slate-700

@@ -174,6 +174,12 @@ Resources:
     Properties:
       Roles: [!Ref PhoenixInstanceRole]
 
+  PhoenixLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/phoenix/${AWS::StackName}"
+      RetentionInDays: 3
+
   ########################
   # Security Groups
   ########################
@@ -245,7 +251,20 @@ Resources:
             echo "Starting Phoenix Bootstrap (DeploymentId: ${DeploymentId})..."
             yum update -y
             yum install -y git jq
+            yum install -y git jq
             amazon-linux-extras install docker -y
+            
+            # Liimt local logs to < 1GB total
+            cat > /etc/docker/daemon.json <<EOF
+            {
+              "log-driver": "json-file",
+              "log-opts": {
+                "max-size": "20m", 
+                "max-file": "5"
+              }
+            }
+            EOF
+            
             systemctl enable --now docker
             for i in {1..10}; do [ -S /var/run/docker.sock ] && break || sleep 2; done
             
@@ -283,11 +302,36 @@ Resources:
             services:
               phoenix-backend:
                 image: ${!PHOENIX_ECR_URI}:latest
+                logging:
+                  driver: awslogs
+                  options:
+                    awslogs-region: ${REGION}
+                    awslogs-group: ${PhoenixLogGroup}
+                    awslogs-stream-prefix: backend
               phoenix-frontend:
                 image: ${!PHOENIX_UI_ECR_URI}:latest
+                logging:
+                  driver: awslogs
+                  options:
+                    awslogs-region: ${REGION}
+                    awslogs-group: ${PhoenixLogGroup}
+                    awslogs-stream-prefix: frontend
+              ollama:
+                logging:
+                  driver: awslogs
+                  options:
+                    awslogs-region: ${REGION}
+                    awslogs-group: ${PhoenixLogGroup}
+                    awslogs-stream-prefix: ollama
               otel-collector:
                 volumes:
                   - ./otel-collector-config-aws.yaml:/etc/otel-collector-config.yaml
+                logging:
+                  driver: awslogs
+                  options:
+                    awslogs-region: ${REGION}
+                    awslogs-group: ${PhoenixLogGroup}
+                    awslogs-stream-prefix: otel
             EOF
 
             /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml --profile aws up -d --scale jaeger=0 --scale lgtm=0
@@ -527,7 +571,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
       ApiId: !Ref PhoenixApi
-      StageName: "app"
+      StageName: "$default"
       AutoDeploy: true
 
 Outputs:
@@ -535,4 +579,4 @@ Outputs:
   InstancePublicIp: { Condition: NotUseALB, Value: !GetAtt PhoenixInstance.PublicIp }
   LoadBalancerDns: { Condition: UseALB, Value: !GetAtt PhoenixLoadBalancer.DNSName }
   ApiGatewayUrl:
-    Value: !Sub "https://${PhoenixApi}.execute-api.${AWS::Region}.amazonaws.com/app/"
+    Value: !Sub "https://${PhoenixApi}.execute-api.${AWS::Region}.amazonaws.com/"
