@@ -24,12 +24,11 @@ services:
   # 2. Kafka KRaft (Latest 8.1 / Kafka 4.1 equivalent). The Bridge (Debezium + Kafka)
   kafka:
     image: confluentinc/cp-kafka:8.1.0
-    container_name: kafka
     ports:
       - "29092:29092"
-      - "9404:9404"   # Prometheus JMX exporter
-      - "9999:9999"   # Standard JMX (RMI)
+      - "9404:9404" # 1. Expose the Prometheus scrape port
     volumes:
+      # 2. Mount the agent and the config file
       - ./jmx_prometheus_javaagent.jar:/usr/share/java/kafka/jmx_prometheus_javaagent.jar
       - ./kafka-jmx-config.yml:/etc/kafka/kafka-jmx-config.yml
     environment:
@@ -43,16 +42,8 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      # Prometheus JMX Java Agent (HTTP on 9404)
-      KAFKA_JVM_PERFORMANCE_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9404:/etc/kafka/kafka-jmx-config.yml"
-
-      # Standard Kafka JMX (RMI on 9999)
-      KAFKA_JMX_PORT: 9999
-
-      # 3. Memory
-      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
+      # 3. Attach the agent to the Kafka process
+      KAFKA_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9404:/etc/kafka/kafka-jmx-config.yml"
     healthcheck:
       # We use 9092 because it is the internal PLAINTEXT listener
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]

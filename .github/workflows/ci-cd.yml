@@ -51,8 +51,6 @@ jobs:
 
   publish:
     needs: build
-    # Runs on pushes to main OR any manual trigger
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4 # Keep this for the Dockerfiles
