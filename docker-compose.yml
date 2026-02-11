@@ -24,6 +24,7 @@ services:
   # 2. Kafka KRaft (Latest 8.1 / Kafka 4.1 equivalent). The Bridge (Debezium + Kafka)
   kafka:
     image: confluentinc/cp-kafka:8.1.0
+    shm_size: 2g
     ports:
       - "29092:29092"
       - "9404:9404" # 1. Expose the Prometheus scrape port
@@ -44,6 +45,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       # 3. Attach the agent to the Kafka process
       KAFKA_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9404:/etc/kafka/kafka-jmx-config.yml"
+      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
     healthcheck:
       # We use 9092 because it is the internal PLAINTEXT listener
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
