@@ -49,7 +49,7 @@ services:
 
       # 2. Ensure standard JMX doesn't conflict with our Prometheus port
       # We move standard JMX to a different port or disable its remote binding
-      KAFKA_JMX_PORT: 9999
+      KAFKA_JMX_PORT: 9405
 
       # 3. Memory
       KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
