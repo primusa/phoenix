@@ -12,7 +12,7 @@ scrape_configs:
   # Translates internal Kafka MBeans to Prometheus format
   - job_name: 'kafka'
     static_configs:
-      - targets: ['kafka:9404']
+      - targets: ['kafka:9405']
 
   # It's required for the 'System' panels in the dashboard
   - job_name: 'node-exporter'
@@ -31,7 +31,7 @@ scrape_configs:
   # Requires JMX Exporter agent or a sidecar for native Prometheus metrics
     # - job_name: 'kafka-broker'
       #  static_configs:
-    #   - targets: ['kafka:9092'] # Adjust port if using a specific JMX exporter port (e.g., 9404)
+    #   - targets: ['kafka:9092'] # Adjust port if using a specific JMX exporter port (e.g., 9405)
 
 
   # 4. Phoenix Service (Application Metrics)

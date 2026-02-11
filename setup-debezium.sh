@@ -23,9 +23,11 @@ curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" 
     "slot.name": "insurance_slot",
     "publication.autocreate.mode": "filtered",
     "snapshot.mode": "initial"
-    # snapshot.mode
-    # initial (Default) Reads all existing data + captures new changes.
-     # never	Skips existing data; only captures changes from now onwards.
-     # always	Performs a full snapshot every time the connector restarts.
   }
 }'
+
+
+# snapshot.mode
+# initial (Default) Reads all existing data + captures new changes.
+# never	Skips existing data; only captures changes from now onwards.
+# always	Performs a full snapshot every time the connector restarts.

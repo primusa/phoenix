@@ -10,11 +10,11 @@ services:
     command:
       - "postgres"
       - "-c"
-      - "wal_level=logical"           # Required for CDC
+      - "wal_level=logical" # Required for CDC
       - "-c"
-      - "max_replication_slots=5"     # Allows Debezium to create a slot
+      - "max_replication_slots=5" # Allows Debezium to create a slot
       - "-c"
-      - "max_wal_senders=5"           # Allows the background process to send data
+      - "max_wal_senders=5" # Allows the background process to send data
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres -d insurance_corp" ]
       interval: 5s
@@ -27,8 +27,8 @@ services:
     container_name: kafka
     shm_size: 2g
     ports:
-      - "29092:29092"  # Internal PLAINTEXT_HOST
-      - "9404:9404"    # Prometheus JMX agent
+      - "29092:29092" # Internal PLAINTEXT_HOST
+      - "9405:9405" # Prometheus JMX agent
     volumes:
       - ./jmx_prometheus_javaagent.jar:/usr/share/java/kafka/jmx_prometheus_javaagent.jar
       - ./kafka-jmx-config.yml:/etc/kafka/kafka-jmx-config.yml
@@ -47,7 +47,7 @@ services:
 
       # JVM / memory settings
       KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
-      KAFKA_JVM_PERFORMANCE_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9404:/etc/kafka/kafka-jmx-config.yml"
+      KAFKA_JVM_PERFORMANCE_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9405:/etc/kafka/kafka-jmx-config.yml"
 
       # Redirect temp files to a location with enough space
       KAFKA_OPTS: "-Djava.io.tmpdir=/tmp/java"
@@ -57,11 +57,11 @@ services:
 
     healthcheck:
       # We use 9092 because it is the internal PLAINTEXT listener
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
-      interval: 10s      # Check every 10s
-      timeout: 10s       # Give the command 10s to respond
-      retries: 10        # Be patient (total wait up to 100s)
-      start_period: 20s  # Don't even start checking for 20 seconds
+      test: [ "CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1" ]
+      interval: 10s # Check every 10s
+      timeout: 10s # Give the command 10s to respond
+      retries: 10 # Be patient (total wait up to 100s)
+      start_period: 20s # Don't even start checking for 20 seconds
 
   #  schema-registry:
   #    image: confluentinc/cp-schema-registry:7.6.0
@@ -94,7 +94,6 @@ services:
       STATUS_STORAGE_REPLICATION_FACTOR: 1 # Stores the current state (RUNNING/FAILED).	Monitoring tools (and your JMX agent) won't show the correct status.
       # Fast Boot Optimizations
       KAFKA_HEAP_OPTS: "-Xmx2G -Xms2G"
-      CONNECT_PLUGIN_PATH: "/kafka/connect/debezium-connector-postgresql"
       # Suppress Telemetry
       CONNECT_PRODUCER_ENABLE_METRICS_PUSH: "false"
       CONNECT_CONSUMER_ENABLE_METRICS_PUSH: "false"

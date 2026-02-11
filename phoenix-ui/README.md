@@ -781,7 +781,7 @@ rm -rf jmx_prometheus_javaagent.jar kafka-jmx-config.yml && cp /Users/prashant/.
 rm -rf jmx_prometheus_javaagent.jar kafka-jmx-config.yml && cp /Users/prashant/.m2/repository/io/prometheus/jmx/jmx_prometheus_javaagent/0.20.0/jmx_prometheus_javaagent-0.20.0.jar jmx_prometheus_javaagent.jar
 
 
-docker compose ps && docker compose logs kafka | tail -n 20 && docker compose logs phoenix-backend | tail -n 20 && curl -s http://localhost:9404 | head -n 10
+docker compose ps && docker compose logs kafka | tail -n 20 && docker compose logs phoenix-backend | tail -n 20 && curl -s http://localhost:9405 | head -n 10
 
 
 docker compose logs debezium | tail -n 20 && curl -s http://localhost:8083/connectors

@@ -12,8 +12,17 @@ until docker-compose exec -T "$SERVICE_NAME" pg_isready -U "$DB_USER" >/dev/null
 done
 
 # 1. Create Database if missing
-docker-compose exec -T "$SERVICE_NAME" psql -U "$DB_USER" -d postgres -c \
-"SELECT 'CREATE DATABASE $DB_NAME' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$DB_NAME')\gexec"
+docker-compose exec -T "$SERVICE_NAME" psql -U "$DB_USER" -d postgres -c "
+DO \$\$
+BEGIN
+   IF NOT EXISTS (
+      SELECT FROM pg_database WHERE datname = '$DB_NAME'
+   ) THEN
+      EXECUTE 'CREATE DATABASE $DB_NAME';
+   END IF;
+END
+\$\$;
+"
 
 # 2. Create Table and Set Publication identity
 # A check for the Publication as well, for Debezium
