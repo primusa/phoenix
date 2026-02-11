@@ -23,11 +23,12 @@ services:
 
   # 2. Kafka KRaft (Latest 8.1 / Kafka 4.1 equivalent). The Bridge (Debezium + Kafka)
   kafka:
-    image: confluentinc/cp-kafka:7.6.0 # 8.1.0 is quite new; 7.6.0 is the current stable target for most Debezium builds
+    image: confluentinc/cp-kafka:8.1.0
     container_name: kafka
     ports:
       - "29092:29092"
-      - "9404:9404"
+      - "9404:9404"   # Prometheus JMX exporter
+      - "9999:9999"   # Standard JMX (RMI)
     volumes:
       - ./jmx_prometheus_javaagent.jar:/usr/share/java/kafka/jmx_prometheus_javaagent.jar
       - ./kafka-jmx-config.yml:/etc/kafka/kafka-jmx-config.yml
@@ -44,12 +45,11 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      # 1. Use EXTRA_ARGS instead of KAFKA_OPTS to avoid internal script conflicts
+      # Prometheus JMX Java Agent (HTTP on 9404)
       KAFKA_JVM_PERFORMANCE_OPTS: "-javaagent:/usr/share/java/kafka/jmx_prometheus_javaagent.jar=9404:/etc/kafka/kafka-jmx-config.yml"
 
-      # 2. Ensure standard JMX doesn't conflict with our Prometheus port
-      # We move standard JMX to a different port or disable its remote binding
-      KAFKA_JMX_PORT: 9405
+      # Standard Kafka JMX (RMI on 9999)
+      KAFKA_JMX_PORT: 9999
 
       # 3. Memory
       KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
