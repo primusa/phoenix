@@ -222,6 +222,55 @@ Resources:
       SecurityGroupEgress:
         - { IpProtocol: -1, CidrIp: 0.0.0.0/0 }
 
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: Allow Postgres access from App
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref InstanceSecurityGroup
+
+  ########################
+  # RDS Resources
+  ########################
+
+  PhoenixDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Phoenix DB Subnets
+      SubnetIds: !If [CreatePrivateSubnets, [!Ref PrivateSubnet1, !Select [0, !Ref PrivateSubnetIds]], !Ref PrivateSubnetIds]
+
+  PhoenixDBParamGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: Enable logical replication for Debezium
+      Family: postgres16
+      Parameters:
+        rds.logical_replication: 1
+
+  PhoenixRDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "phoenix-db-${DeploymentId}"
+      Engine: postgres
+      EngineVersion: "16.3"
+      DBInstanceClass: db.t4g.micro
+      AllocatedStorage: 20
+      StorageType: gp3
+      DBName: insurance_corp
+      MasterUsername: postgres
+      MasterUserPassword: postgres # In prod use SecretsManager
+      VPCSecurityGroups: [!Ref RDSSecurityGroup]
+      DBSubnetGroupName: !Ref PhoenixDBSubnetGroup
+      DBParameterGroupName: !Ref PhoenixDBParamGroup
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 1 # minimal retention for CDC/WAL
+
+
   ########################
   # Launch Template
   ########################
@@ -258,6 +307,7 @@ Resources:
             yum update -y
             yum install -y git jq
             yum install -y git jq
+            # yum install -y postgresql # No longer needed for init
             amazon-linux-extras install docker -y
             
             # Liimt local logs to < 1GB total
@@ -304,11 +354,21 @@ Resources:
             export PHOENIX_ECR_URI="$ECR_REPO_URI"
             export PHOENIX_UI_ECR_URI="$ECR_UI_URI"
             
+            # RDS Connection Info
+            export DB_HOST="${PhoenixRDS.Endpoint.Address}"
+            export DB_PORT="${PhoenixRDS.Endpoint.Port}"
+            export DB_USER="postgres"
+            export DB_PASS="postgres"
+            export DB_NAME="insurance_corp"
+            
             cat > docker-compose-override.yml <<EOF
             services:
               phoenix-backend:
                 image: ${!PHOENIX_ECR_URI}:latest
                 environment:
+                  SPRING_DATASOURCE_URL: jdbc:postgresql://${!DB_HOST}:${!DB_PORT}/${!DB_NAME}
+                  SPRING_DATASOURCE_USERNAME: ${!DB_USER}
+                  SPRING_DATASOURCE_PASSWORD: ${!DB_PASS}
                   MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_ENABLED: "false"
                 logging:
                   driver: awslogs
@@ -344,10 +404,46 @@ Resources:
 
             /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml --profile aws up -d --scale jaeger=0 --scale lgtm=0
             chown -R ec2-user:ec2-user /opt/phoenix
-            echo "Initializing Database..."
-            bash ./init-db.sh || true
-            echo "Setting up Debezium..."
-            bash ./setup-debezium.sh || true
+            chown -R ec2-user:ec2-user /opt/phoenix
+            
+            echo "Skipping manual DB Init (Application handles schema migration)..."
+            
+            echo "Setting up connect-debezium..."
+            # Adjust setup-debezium.sh logic inline or create new
+            cat > setup-debezium-rds.sh <<EOF_DEBEZIUM
+            #!/bin/bash
+            echo "Waiting for Debezium..."
+            until curl -s -f -m 5 -o /dev/null http://localhost:8083; do
+              sleep 2
+            done
+            
+            # Wait for App to likely have created the table (or just rely on Debezium retries/errors until table exists)
+            # A small sleep to give Spring Boot a head start
+            sleep 15
+            
+            echo "Registering RDS connector..."
+            curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" \
+              http://localhost:8083/connectors/ -d '{
+              "name": "insurance-connector",
+              "config": {
+                "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+                "database.hostname": "'"\$DB_HOST"'",
+                "database.port": "'"\$DB_PORT"'",
+                "database.user": "'"\$DB_USER"'",
+                "database.password": "'"\$DB_PASS"'",
+                "database.dbname": "'"\$DB_NAME"'",
+                "topic.prefix": "legacy",
+                "table.include.list": "public.claims",
+                "plugin.name": "pgoutput",
+                "slot.name": "insurance_slot",
+                "publication.autocreate.mode": "filtered",
+                "snapshot.mode": "initial"
+              }
+            }'
+            EOF_DEBEZIUM
+            chmod +x setup-debezium-rds.sh
+            ./setup-debezium-rds.sh || true
+            
             sleep 10
             /usr/bin/docker-compose ps
 
@@ -590,3 +686,5 @@ Outputs:
   LoadBalancerDns: { Condition: UseALB, Value: !GetAtt PhoenixLoadBalancer.DNSName }
   ApiGatewayUrl:
     Value: !Sub "https://${PhoenixApi}.execute-api.${AWS::Region}.amazonaws.com/"
+  RDSEndpoint:
+    Value: !GetAtt PhoenixRDS.Endpoint.Address
