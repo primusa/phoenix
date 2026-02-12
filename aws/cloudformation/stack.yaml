@@ -68,6 +68,7 @@ Resources:
   GeneratedIGW:
     Condition: CreateIGW
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags: [{ Key: Name, Value: phoenix-igw }]
@@ -75,6 +76,7 @@ Resources:
   VPCGatewayAttachment:
     Condition: CreateIGW
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       VpcId: !Ref VpcId
@@ -174,8 +176,11 @@ Resources:
     Properties:
       Roles: [!Ref PhoenixInstanceRole]
 
+
   PhoenixLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub "/aws/phoenix/${AWS::StackName}"
       RetentionInDays: 3
@@ -223,6 +228,7 @@ Resources:
 
   PhoenixLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
+    DependsOn: [PhoenixLogGroup]
     Properties:
       LaunchTemplateData:
         ImageId: !Ref LatestAmiId
@@ -302,36 +308,38 @@ Resources:
             services:
               phoenix-backend:
                 image: ${!PHOENIX_ECR_URI}:latest
+                environment:
+                  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_ENABLED: "false"
                 logging:
                   driver: awslogs
                   options:
-                    awslogs-region: ${REGION}
+                    awslogs-region: ${AWS::Region}
                     awslogs-group: ${PhoenixLogGroup}
-                    awslogs-stream-prefix: backend
+                    awslogs-stream: backend
               phoenix-frontend:
                 image: ${!PHOENIX_UI_ECR_URI}:latest
                 logging:
                   driver: awslogs
                   options:
-                    awslogs-region: ${REGION}
+                    awslogs-region: ${AWS::Region}
                     awslogs-group: ${PhoenixLogGroup}
-                    awslogs-stream-prefix: frontend
+                    awslogs-stream: frontend
               ollama:
                 logging:
                   driver: awslogs
                   options:
-                    awslogs-region: ${REGION}
+                    awslogs-region: ${AWS::Region}
                     awslogs-group: ${PhoenixLogGroup}
-                    awslogs-stream-prefix: ollama
+                    awslogs-stream: ollama
               otel-collector:
                 volumes:
                   - ./otel-collector-config-aws.yaml:/etc/otel-collector-config.yaml
                 logging:
                   driver: awslogs
                   options:
-                    awslogs-region: ${REGION}
+                    awslogs-region: ${AWS::Region}
                     awslogs-group: ${PhoenixLogGroup}
-                    awslogs-stream-prefix: otel
+                    awslogs-stream: otel
             EOF
 
             /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml --profile aws up -d --scale jaeger=0 --scale lgtm=0
@@ -483,6 +491,8 @@ Resources:
 
   PhoenixApi:
     Type: AWS::ApiGatewayV2::Api
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Name: !Sub "${AWS::StackName}-api"
       ProtocolType: HTTP
@@ -501,7 +511,7 @@ Resources:
     Properties:
       ApiId: !Ref PhoenixApi
       IntegrationType: HTTP_PROXY
-      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/assets/", !Sub "http://${PhoenixInstance.PublicIp}:5173/assets/"]
+      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/assets/", !Sub "http://${PhoenixInstance.PublicIp}:5173/assets/{proxy}"]
       PayloadFormatVersion: "1.0"
       IntegrationMethod: ANY
 
@@ -510,7 +520,7 @@ Resources:
     Properties:
       ApiId: !Ref PhoenixApi
       IntegrationType: HTTP_PROXY
-      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/api/", !Sub "http://${PhoenixInstance.PublicIp}:8080/api/"]
+      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/api/{proxy}", !Sub "http://${PhoenixInstance.PublicIp}:8080/api/{proxy}"]
       PayloadFormatVersion: "1.0"
       IntegrationMethod: ANY
 
@@ -519,7 +529,7 @@ Resources:
     Properties:
       ApiId: !Ref PhoenixApi
       IntegrationType: HTTP_PROXY
-      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/grafana/", !Sub "http://${PhoenixInstance.PublicIp}:3000/"]
+      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/grafana/{proxy}", !Sub "http://${PhoenixInstance.PublicIp}:3000/grafana/{proxy}"]
       PayloadFormatVersion: "1.0"
       IntegrationMethod: ANY
 
@@ -528,7 +538,7 @@ Resources:
     Properties:
       ApiId: !Ref PhoenixApi
       IntegrationType: HTTP_PROXY
-      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/jaeger/", !Sub "http://${PhoenixInstance.PublicIp}:16686/jaeger/"]
+      IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/jaeger/{proxy}", !Sub "http://${PhoenixInstance.PublicIp}:16686/jaeger/{proxy}"]
       PayloadFormatVersion: "1.0"
       IntegrationMethod: ANY
 
