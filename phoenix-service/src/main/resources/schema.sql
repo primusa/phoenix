@@ -1,9 +1,0 @@
-CREATE TABLE IF NOT EXISTS claims (
-    id SERIAL PRIMARY KEY,
-    description TEXT,
-    summary TEXT,
-    status VARCHAR(50) DEFAULT 'OPEN',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-ALTER TABLE claims REPLICA IDENTITY FULL;

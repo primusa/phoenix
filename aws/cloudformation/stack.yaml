@@ -435,7 +435,9 @@ PhoenixRDS:
             chown -R ec2-user:ec2-user /opt/phoenix
             chown -R ec2-user:ec2-user /opt/phoenix
             
-            echo "Skipping manual DB Init (Application handles schema migration)..."
+            echo "Initializing Database..."
+            bash ./scripts/init-db-rds.sh || true
+
             
             echo "Setting up connect-debezium..."
             # Adjust setup-debezium.sh logic inline or create new
