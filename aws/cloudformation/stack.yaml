@@ -41,6 +41,7 @@ Parameters:
   PublicSubnetCidr1: { Type: String, Default: 10.0.1.0/24 }
   PublicSubnetCidr2: { Type: String, Default: 10.0.2.0/24 }
   PrivateSubnetCidr1: { Type: String, Default: 10.0.10.0/24 }
+  PrivateSubnetCidr2: { Type: String, Default: 10.0.11.0/24 }
 
   PhoenixServiceRepoName: { Type: String, Default: phoenix-service }
   PhoenixUiRepoName: { Type: String, Default: phoenix-ui }
@@ -154,6 +155,16 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags: [{ Key: Name, Value: phoenix-private-1 }]
 
+  PrivateSubnet2:
+    Condition: CreatePrivateSubnets
+    DeletionPolicy: Retain
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcId
+      CidrBlock: !Ref PrivateSubnetCidr2
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags: [{ Key: Name, Value: phoenix-private-2 }]
+
   ########################
   # IAM
   ########################
@@ -241,7 +252,7 @@ Resources:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
       DBSubnetGroupDescription: Phoenix DB Subnets
-      SubnetIds: !If [CreatePrivateSubnets, [!Ref PrivateSubnet1, !Select [0, !Ref PrivateSubnetIds]], !Ref PrivateSubnetIds]
+      SubnetIds: !If [CreatePrivateSubnets, [!Ref PrivateSubnet1, !Ref PrivateSubnet2], !Ref PrivateSubnetIds]
 
   PhoenixDBParamGroup:
     Type: AWS::RDS::DBParameterGroup
@@ -253,6 +264,8 @@ Resources:
 
   PhoenixRDS:
     Type: AWS::RDS::DBInstance
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       DBInstanceIdentifier: !Sub "phoenix-db-${DeploymentId}"
       Engine: postgres
@@ -268,6 +281,7 @@ Resources:
       DBParameterGroupName: !Ref PhoenixDBParamGroup
       PubliclyAccessible: false
       MultiAZ: false
+      AvailabilityZone: !Select [0, !GetAZs ""]
       BackupRetentionPeriod: 1 # minimal retention for CDC/WAL
 
 
@@ -277,7 +291,7 @@ Resources:
 
   PhoenixLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
-    DependsOn: [PhoenixLogGroup]
+    DependsOn: [PhoenixLogGroup, PhoenixRDS]
     Properties:
       LaunchTemplateData:
         ImageId: !Ref LatestAmiId

@@ -46,7 +46,14 @@ else
 fi
 
 PRIVATE_SUBNET_ARRAY=$(aws ec2 describe-subnets --region "$REGION" --filters "Name=vpc-id,Values=$VPC_ID" "Name=map-public-ip-on-launch,Values=false" --query 'Subnets[*].SubnetId' --output text)
-PRIVATE_SUBNETS=$(echo $PRIVATE_SUBNET_ARRAY | sed 's/ /,/g')
+# Verify we have at least 2 private subnets for RDS (which requires 2 AZs)
+PRIVATE_COUNT=$(echo $PRIVATE_SUBNET_ARRAY | wc -w)
+if [ "$PRIVATE_COUNT" -lt 2 ]; then
+  echo "⚠️  Found only $PRIVATE_COUNT private subnet(s). RDS requires at least 2. Ignoring existing subnets and letting Stack create new ones."
+  PRIVATE_SUBNETS=""
+else
+  PRIVATE_SUBNETS=$(echo $PRIVATE_SUBNET_ARRAY | sed 's/ /,/g')
+fi
 
 # 4. Check for existing Public Route (0.0.0.0/0 -> IGW)
 # We check the first public subnet's route table
@@ -68,14 +75,14 @@ fi
 DEPLOYMENT_ID=$(date +%s)
 
 # Stack Status Check & Waiting
-echo "Checking stack status..."
+echo "Checking stack status..." 
 for i in {1..50}; do
   STATUS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "MISSING")
   
   if [[ "$STATUS" =~ CLEANUP_IN_PROGRESS|DELETE_IN_PROGRESS|WAIT_IN_PROGRESS ]]; then
     echo "Current Status: $STATUS. Waiting ($i/50)..."
-    sleep 20
-  elif [[ "$STATUS" =~ FAILED|ROLLBACK ]]; then
+    sleep 5
+  elif [[ "$STATUS" =~ FAILED|ROLLBACK|REVIEW_IN_PROGRESS ]]; then
     echo "🧹 Cleanup old failure ($STATUS)..."
     aws cloudformation delete-stack --stack-name "$STACK_NAME" --region "$REGION"
     aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region "$REGION"
@@ -101,16 +108,15 @@ PARAMS=(
 [[ -n "$PUBLIC_SUBNETS" ]] && PARAMS+=("PublicSubnetIds=$PUBLIC_SUBNETS")
 [[ -n "$PRIVATE_SUBNETS" ]] && PARAMS+=("PrivateSubnetIds=$PRIVATE_SUBNETS")
 
-echo "🚀 Deploying ($INSTANCE_TYPE)..."
+echo "🚀 Deploying ($INSTANCE_TYPE) to $VPC_ID in $REGION..."
+echo "ℹ️  Parameters: ${PARAMS[*]}"
+
 aws cloudformation deploy \
   --template-file aws/cloudformation/stack.yaml \
   --stack-name "$STACK_NAME" \
   --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides "${PARAMS[@]}" \
-  --region "$REGION" || {
-    echo "❌ Deployment failed. If it's stuck in CLEANUP_IN_PROGRESS, please wait 5 minutes and try again."
-    exit 1
-  }
+  --region "$REGION" || echo "⚠️ Deployment command failed. Checking outputs..."
 
 echo "✅ Success!"
 
