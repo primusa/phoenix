@@ -190,8 +190,8 @@ Resources:
 
   PhoenixLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
     Properties:
       LogGroupName: !Sub "/aws/phoenix/${AWS::StackName}"
       RetentionInDays: 3
@@ -218,7 +218,7 @@ Resources:
         # SSH always allowed (SSM preferred)
         - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: 0.0.0.0/0 }
         # Frontend, Backend, Grafana, Jaeger restricted to ALB if present
-        - { IpProtocol: tcp, FromPort: 5173, ToPort: 5173, 
+        - { IpProtocol: tcp, FromPort: 5173, ToPort: 5173,
             CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"],
             SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
         - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, 
@@ -264,8 +264,8 @@ Resources:
 
   PhoenixRDS:
     Type: AWS::RDS::DBInstance
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: !If [IsProd, Snapshot, Delete]
+    UpdateReplacePolicy: !If [IsProd, Snapshot, Delete]
     Properties:
       DBInstanceIdentifier: !Sub "phoenix-db-${DeploymentId}"
       Engine: postgres
@@ -462,7 +462,7 @@ Resources:
             /usr/bin/docker-compose ps
 
   ########################
-  # EC2 / ASG Resources
+  # EC2 / ASG / ALB
   ########################
 
   PhoenixInstance:
@@ -601,8 +601,8 @@ Resources:
 
   PhoenixApi:
     Type: AWS::ApiGatewayV2::Api
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
     Properties:
       Name: !Sub "${AWS::StackName}-api"
       ProtocolType: HTTP
@@ -699,6 +699,9 @@ Outputs:
   InstancePublicIp: { Condition: NotUseALB, Value: !GetAtt PhoenixInstance.PublicIp }
   LoadBalancerDns: { Condition: UseALB, Value: !GetAtt PhoenixLoadBalancer.DNSName }
   ApiGatewayUrl:
-    Value: !Sub "https://${PhoenixApi}.execute-api.${AWS::Region}.amazonaws.com/"
+    Description: "Stable public URL for Phoenix API"
+    Value: !Sub "https://${PhoenixApi}.execute-api.${AWS::Region}.amazonaws.com/$default"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiGatewayUrl"
   RDSEndpoint:
     Value: !GetAtt PhoenixRDS.Endpoint.Address
