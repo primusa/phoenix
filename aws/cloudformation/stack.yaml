@@ -254,13 +254,23 @@ Resources:
       DBSubnetGroupDescription: Phoenix DB Subnets
       SubnetIds: !If [CreatePrivateSubnets, [!Ref PrivateSubnet1, !Ref PrivateSubnet2], !Ref PrivateSubnetIds]
 
-  PhoenixDBParamGroup:
-    Type: AWS::RDS::DBParameterGroup
-    Properties:
-      Description: Enable logical replication for Debezium
-      Family: postgres16
-      Parameters:
-        rds.logical_replication: 1
+PhoenixDBParamGroup:
+  Type: AWS::RDS::DBParameterGroup
+  Properties:
+    Description: "Phoenix DB Param Group - logical replication + small instance tuning"
+    Family: postgres16
+    Parameters:
+      rds.logical_replication: 1      # Required for Debezium/CDC
+      shared_buffers: 512MB           # Cache memory for small instances
+      work_mem: 16MB                  # Memory per query operation
+      maintenance_work_mem: 64MB      # Memory for maintenance operations (vacuum, index rebuild)
+      max_connections: 50             # Keep connections reasonable for micro instance
+      effective_cache_size: 1GB       # Helps PostgreSQL planner estimate available cache
+      wal_buffers: 16MB                # WAL write buffer size
+      synchronous_commit: on          # Ensure data durability
+      checkpoint_completion_target: 0.7 # Smooth out writes
+      log_min_duration_statement: 1000 # Log queries longer than 1s for dev monitoring
+
 
 PhoenixRDS:
   Type: AWS::RDS::DBInstance
