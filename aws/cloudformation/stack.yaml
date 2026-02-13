@@ -262,27 +262,32 @@ Resources:
       Parameters:
         rds.logical_replication: 1
 
-  PhoenixRDS:
-    Type: AWS::RDS::DBInstance
-    DeletionPolicy: !If [IsProd, Snapshot, Delete]
-    UpdateReplacePolicy: !If [IsProd, Snapshot, Delete]
-    Properties:
-      DBInstanceIdentifier: !Sub "phoenix-db-${DeploymentId}"
-      Engine: postgres
-      EngineVersion: "16.3"
-      DBInstanceClass: db.t4g.micro
-      AllocatedStorage: 20
-      StorageType: gp3
-      DBName: insurance_corp
-      MasterUsername: postgres
-      MasterUserPassword: postgres # In prod use SecretsManager
-      VPCSecurityGroups: [!Ref RDSSecurityGroup]
-      DBSubnetGroupName: !Ref PhoenixDBSubnetGroup
-      DBParameterGroupName: !Ref PhoenixDBParamGroup
-      PubliclyAccessible: false
-      MultiAZ: false
-      AvailabilityZone: !Select [0, !GetAZs ""]
-      BackupRetentionPeriod: 1 # minimal retention for CDC/WAL
+PhoenixRDS:
+  Type: AWS::RDS::DBInstance
+  DeletionPolicy: !If [IsProd, Snapshot, Delete]
+  UpdateReplacePolicy: !If [IsProd, Snapshot, Delete]
+  Properties:
+    DBInstanceIdentifier: !Sub "phoenix-db-${DeploymentId}"
+    Engine: postgres
+    EngineVersion: "16.3"
+    DBInstanceClass: db.t4g.micro   # Faster than t3.micro and Free Tier eligible in many regions
+    AllocatedStorage: 20             # Minimum free-tier-friendly storage
+    StorageType: gp3                  # Low-latency, free-tier-friendly
+    StorageEncrypted: true            # Optional: security best practice
+    DBName: insurance_corp
+    MasterUsername: postgres
+    MasterUserPassword: postgres      # In prod, use Secrets Manager
+    VPCSecurityGroups: [!Ref RDSSecurityGroup]
+    DBSubnetGroupName: !Ref PhoenixDBSubnetGroup
+    DBParameterGroupName: !Ref PhoenixDBParamGroup
+    PubliclyAccessible: false
+    MultiAZ: false
+    AvailabilityZone: !Select [0, !GetAZs ""]
+    BackupRetentionPeriod: 1          # Minimal retention for CDC/WAL
+    MonitoringInterval: 60            # Enable Enhanced Monitoring every 60s
+    EnablePerformanceInsights: true   # Useful for tuning queries
+    PerformanceInsightsRetentionPeriod: 7 # Retain PI metrics for a week
+
 
 
   ########################
