@@ -254,51 +254,63 @@ Resources:
       DBSubnetGroupDescription: Phoenix DB Subnets
       SubnetIds: !If [CreatePrivateSubnets, [!Ref PrivateSubnet1, !Ref PrivateSubnet2], !Ref PrivateSubnetIds]
 
-PhoenixDBParamGroup:
-  Type: AWS::RDS::DBParameterGroup
-  Properties:
-    Description: "Phoenix DB Param Group - logical replication + small instance tuning"
-    Family: postgres16
-    Parameters:
-      rds.logical_replication: 1      # Required for Debezium/CDC
-      shared_buffers: 512MB           # Cache memory for small instances
-      work_mem: 16MB                  # Memory per query operation
-      maintenance_work_mem: 64MB      # Memory for maintenance operations (vacuum, index rebuild)
-      max_connections: 50             # Keep connections reasonable for micro instance
-      effective_cache_size: 1GB       # Helps PostgreSQL planner estimate available cache
-      wal_buffers: 16MB                # WAL write buffer size
-      synchronous_commit: on          # Ensure data durability
-      checkpoint_completion_target: 0.7 # Smooth out writes
-      log_min_duration_statement: 1000 # Log queries longer than 1s for dev monitoring
+  PhoenixDBParamGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: "Phoenix DB Param Group - logical replication + small instance tuning"
+      Family: postgres16
+      Parameters:
+        rds.logical_replication: 1      # Required for Debezium/CDC
+        shared_buffers: 536870912       # 512MB in bytes. Cache memory for small instances
+        work_mem: 16777216              # 16MB in bytes. Memory per query operation
+        maintenance_work_mem: 67108864  # 64MB in bytes. Memory for maintenance operations (vacuum, index rebuild)
+        max_connections: 50             # Keep connections reasonable for micro instance
+        effective_cache_size: 1073741824       # 1GB in bytes. Helps PostgreSQL planner estimate available cache
+        wal_buffers:  -1           # WAL write buffer size. Postgres auto-tunes it very well so just setting to -1.
+        #synchronous_commit: on          # Ensure data durability
+        checkpoint_completion_target: 0.7 # Smooth out writes
+        log_min_duration_statement: 1000 # Log queries longer than 1s for dev monitoring
 
 
-PhoenixRDS:
-  Type: AWS::RDS::DBInstance
-  DeletionPolicy: !If [IsProd, Snapshot, Delete]
-  UpdateReplacePolicy: !If [IsProd, Snapshot, Delete]
-  Properties:
-    DBInstanceIdentifier: !Sub "phoenix-db-${DeploymentId}"
-    Engine: postgres
-    EngineVersion: "16.3"
-    DBInstanceClass: db.t4g.micro   # Faster than t3.micro and Free Tier eligible in many regions
-    AllocatedStorage: 20             # Minimum free-tier-friendly storage
-    StorageType: gp3                  # Low-latency, free-tier-friendly
-    StorageEncrypted: true            # Optional: security best practice
-    DBName: insurance_corp
-    MasterUsername: postgres
-    MasterUserPassword: postgres      # In prod, use Secrets Manager
-    VPCSecurityGroups: [!Ref RDSSecurityGroup]
-    DBSubnetGroupName: !Ref PhoenixDBSubnetGroup
-    DBParameterGroupName: !Ref PhoenixDBParamGroup
-    PubliclyAccessible: false
-    MultiAZ: false
-    AvailabilityZone: !Select [0, !GetAZs ""]
-    BackupRetentionPeriod: 1          # Minimal retention for CDC/WAL
-    MonitoringInterval: 60            # Enable Enhanced Monitoring every 60s
-    EnablePerformanceInsights: true   # Useful for tuning queries
-    PerformanceInsightsRetentionPeriod: 7 # Retain PI metrics for a week
+  PhoenixRDS:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: !If [IsProd, Snapshot, Delete]
+    UpdateReplacePolicy: !If [IsProd, Snapshot, Delete]
+    Properties:
+      DBInstanceIdentifier: !Sub "phoenix-db-${DeploymentId}"
+      Engine: postgres
+      EngineVersion: "16.3"
+      DBInstanceClass: db.t4g.micro   # Faster than t3.micro and Free Tier eligible in many regions
+      AllocatedStorage: 20             # Minimum free-tier-friendly storage
+      StorageType: gp3                  # Low-latency, free-tier-friendly
+      StorageEncrypted: true            # Optional: security best practice
+      DBName: insurance_corp
+      MasterUsername: postgres
+      MasterUserPassword: postgres      # In prod, use Secrets Manager
+      VPCSecurityGroups: [!Ref RDSSecurityGroup]
+      DBSubnetGroupName: !Ref PhoenixDBSubnetGroup
+      DBParameterGroupName: !Ref PhoenixDBParamGroup
+      PubliclyAccessible: false
+      MultiAZ: false
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      BackupRetentionPeriod: 1          # Minimal retention for CDC/WAL
+      MonitoringInterval: 0            # Disabled monitoring for now. Enable Enhanced Monitoring every 60s
+      EnablePerformanceInsights: true   # Useful for tuning queries
+      PerformanceInsightsRetentionPeriod: 7 # Retain PI metrics for a week
 
 
+  # RdsMonitoringRole:
+  #   Type: AWS::IAM::Role
+  #   Properties:
+  #     AssumeRolePolicyDocument:
+  #       Version: "2012-10-17"
+  #       Statement:
+  #         - Effect: Allow
+  #           Principal:
+  #             Service: monitoring.rds.amazonaws.com
+  #           Action: sts:AssumeRole
+  #     ManagedPolicyArns:
+  #       - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
 
   ########################
   # Launch Template
@@ -336,7 +348,13 @@ PhoenixRDS:
             yum update -y
             yum install -y git jq
             yum install -y git jq
-            # yum install -y postgresql # No longer needed for init
+
+            # Enable the correct Amazon Linux extras repo for PostgreSQL 14
+            amazon-linux-extras enable postgresql14
+            yum install -y postgresql
+            psql --version
+
+
             amazon-linux-extras install docker -y
             
             # Liimt local logs to < 1GB total
