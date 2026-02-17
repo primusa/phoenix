@@ -724,6 +724,7 @@ Resources:
 
   PhoenixApiStage:
     Type: AWS::ApiGatewayV2::Stage
+    DeletionPolicy: Retain
     Properties:
       ApiId: !Ref PhoenixApi
       StageName: "$default"
