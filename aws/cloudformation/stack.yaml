@@ -261,15 +261,15 @@ Resources:
       Family: postgres16
       Parameters:
         rds.logical_replication: 1      # Required for Debezium/CDC
-        shared_buffers: 536870912       # 512MB in bytes. Cache memory for small instances
-        work_mem: 16777216              # 16MB in bytes. Memory per query operation
-        maintenance_work_mem: 67108864  # 64MB in bytes. Memory for maintenance operations (vacuum, index rebuild)
-        max_connections: 50             # Keep connections reasonable for micro instance
-        effective_cache_size: 1073741824       # 1GB in bytes. Helps PostgreSQL planner estimate available cache
+        shared_buffers: 268435456       # 256MB in bytes. Cache memory for small instances
+        work_mem: 4194304              # 4MB in bytes. Memory per query operation
+        maintenance_work_mem: 16777216  # 16MB in bytes. Memory for maintenance operations (vacuum, index rebuild)
+        max_connections: 20             # Keep connections reasonable for micro instance
+        effective_cache_size: 536870912       # 512MB in bytes. Helps PostgreSQL planner estimate available cache
         wal_buffers:  -1           # WAL write buffer size. Postgres auto-tunes it very well so just setting to -1.
         #synchronous_commit: on          # Ensure data durability
         checkpoint_completion_target: 0.7 # Smooth out writes
-        log_min_duration_statement: 1000 # Log queries longer than 1s for dev monitoring
+        log_min_duration_statement: 2000 # Log queries longer than 2s for dev monitoring
 
 
   PhoenixRDS:
