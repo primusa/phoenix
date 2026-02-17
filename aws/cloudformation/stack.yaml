@@ -224,12 +224,18 @@ Resources:
         - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, 
             CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"],
             SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
-        - { IpProtocol: tcp, FromPort: 3000, ToPort: 3000, 
-            CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"],
-            SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
-        - { IpProtocol: tcp, FromPort: 16686, ToPort: 16686, 
-            CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"],
-            SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
+        - !If 
+          - IsProd
+          - { IpProtocol: tcp, FromPort: 3000, ToPort: 3000, 
+              CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"],
+              SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
+          - !Ref "AWS::NoValue"
+        - !If 
+          - IsProd
+          - { IpProtocol: tcp, FromPort: 16686, ToPort: 16686, 
+              CidrIp: !If [NotUseALB, 0.0.0.0/0, !Ref "AWS::NoValue"],
+              SourceSecurityGroupId: !If [UseALB, !Ref ALBSecurityGroup, !Ref "AWS::NoValue"] }
+          - !Ref "AWS::NoValue"
       SecurityGroupEgress:
         - { IpProtocol: -1, CidrIp: 0.0.0.0/0 }
 
@@ -416,7 +422,10 @@ Resources:
                   SPRING_DATASOURCE_URL: jdbc:postgresql://${!DB_HOST}:${!DB_PORT}/${!DB_NAME}
                   SPRING_DATASOURCE_USERNAME: ${!DB_USER}
                   SPRING_DATASOURCE_PASSWORD: ${!DB_PASS}
-                  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_ENABLED: "false"
+                  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_ENABLED: !If [IsProd, "true", "false"]
+                  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_ENABLED: !If [IsProd, "true", "false"]
+                  MANAGEMENT_OPENTELEMETRY_METRICS_EXPORT_ENABLED: !If [IsProd, "true", "false"]
+                  MANAGEMENT_TRACING_SAMPLING_PROBABILITY: !If [IsProd, "1.0", "0.0"]
                 logging:
                   driver: awslogs
                   options:
@@ -439,6 +448,7 @@ Resources:
                     awslogs-group: ${PhoenixLogGroup}
                     awslogs-stream: ollama
               otel-collector:
+                profiles: [ !If [IsProd, "observability", "none"] ]
                 volumes:
                   - ./otel-collector-config-aws.yaml:/etc/otel-collector-config.yaml
                 logging:
@@ -449,7 +459,11 @@ Resources:
                     awslogs-stream: otel
             EOF
 
-            /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml --profile aws up -d --scale jaeger=0 --scale lgtm=0
+            PROFILES="aws"
+            if [ "${EnvironmentMode}" == "production" ]; then
+              PROFILES="aws,observability"
+            fi
+            /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml --profile $PROFILES up -d
             chown -R ec2-user:ec2-user /opt/phoenix
             chown -R ec2-user:ec2-user /opt/phoenix
             
@@ -542,7 +556,7 @@ Resources:
       Protocol: HTTP
 
   MonitoringTargetGroup:
-    Condition: UseALB
+    Condition: !And [IsProd, UseALB]
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       VpcId: !Ref VpcId
@@ -550,12 +564,13 @@ Resources:
       Protocol: HTTP
 
   JaegerTargetGroup:
-    Condition: UseALB
+    Condition: !And [IsProd, UseALB]
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       VpcId: !Ref VpcId
       Port: 16686
       Protocol: HTTP
+
 
   PhoenixListener:
     Condition: UseALB
@@ -589,7 +604,7 @@ Resources:
           Values: [/api/*]
 
   GrafanaRule:
-    Condition: UseALB
+    Condition: !And [IsProd, UseALB]
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       ListenerArn: !Ref PhoenixListener
@@ -600,7 +615,7 @@ Resources:
           Values: [/grafana*]
 
   JaegerRule:
-    Condition: UseALB
+    Condition: !And [IsProd, UseALB]
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       ListenerArn: !Ref PhoenixListener
@@ -609,6 +624,8 @@ Resources:
       Conditions:
         - Field: path-pattern
           Values: [/jaeger*]
+
+
 
   PhoenixAutoScalingGroup:
     Condition: UseALB
@@ -621,7 +638,11 @@ Resources:
       MinSize: '1'
       MaxSize: '1'
       DesiredCapacity: '1'
-      TargetGroupARNs: [!Ref FrontendTargetGroup, !Ref BackendTargetGroup, !Ref MonitoringTargetGroup, !Ref JaegerTargetGroup]
+      TargetGroupARNs: 
+        - !Ref FrontendTargetGroup
+        - !Ref BackendTargetGroup
+        - !If [IsProd, !Ref MonitoringTargetGroup, !Ref "AWS::NoValue"]
+        - !If [IsProd, !Ref JaegerTargetGroup, !Ref "AWS::NoValue"]
       Tags:
         - Key: project
           Value: phoenix
@@ -670,6 +691,7 @@ Resources:
       IntegrationMethod: ANY
 
   GrafanaIntegration:
+    Condition: IsProd
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref PhoenixApi
@@ -679,6 +701,7 @@ Resources:
       IntegrationMethod: ANY
 
   JaegerIntegration:
+    Condition: IsProd
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref PhoenixApi
@@ -686,6 +709,8 @@ Resources:
       IntegrationUri: !If [UseALB, !Sub "http://${PhoenixLoadBalancer.DNSName}/jaeger/{proxy}", !Sub "http://${PhoenixInstance.PublicIp}:16686/jaeger/{proxy}"]
       PayloadFormatVersion: "1.0"
       IntegrationMethod: ANY
+
+
 
   DefaultRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -708,7 +733,10 @@ Resources:
       RouteKey: "ANY /api/{proxy+}"
       Target: !Join ["/", ["integrations", !Ref BackendIntegration]]
 
+
+
   GrafanaRoute:
+    Condition: IsProd
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref PhoenixApi
@@ -716,11 +744,14 @@ Resources:
       Target: !Join ["/", ["integrations", !Ref GrafanaIntegration]]
 
   JaegerRoute:
+    Condition: IsProd
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref PhoenixApi
       RouteKey: "ANY /jaeger/{proxy+}"
       Target: !Join ["/", ["integrations", !Ref JaegerIntegration]]
+
+
 
   PhoenixApiStage:
     Type: AWS::ApiGatewayV2::Stage

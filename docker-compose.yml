@@ -119,7 +119,7 @@ services:
       - ollama_data:/root/.ollama
     dns: [ 8.8.8.8 ]
     environment:
-       - OLLAMA_KEEP_ALIVE=-1m
+      - OLLAMA_KEEP_ALIVE=-1m
     command: >
       -c " ollama serve & SERVER_PID=$!; until ollama status >/dev/null 2>&1; do sleep 1; done; ollama pull tinyllama && ollama pull nomic-embed-text; wait $SERVER_PID "
     # ollama run tinyllama 'ping' --keepalive -1m &&
@@ -129,12 +129,14 @@ services:
   # 5. Observability (Jaeger + Prometheus)
   # --- EXTERNAL METRICS: Prometheus ---
   prometheus:
+    profiles: [ "observability" ]
     image: prom/prometheus:latest
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     ports: [ "9090:9090" ]
 
   node-exporter:
+    profiles: [ "observability" ]
     image: prom/node-exporter:latest
     container_name: node-exporter
     restart: unless-stopped
@@ -152,6 +154,7 @@ services:
 
   # --- BACKEND : JAEGER v2.0 (Deep-Dive Tracing) ---
   jaeger:
+    profiles: [ "observability" ]
     image: jaegertracing/jaeger:latest
     ports:
       - "16686:16686" # UI
@@ -174,6 +177,7 @@ services:
 
   # --- BACKEND : LGTM Stack (Unified Observability) ---
   lgtm:
+    profiles: [ "observability" ]
     image: grafana/otel-lgtm:latest
     ports:
       - "3000:3000" # Grafana UI
@@ -219,7 +223,7 @@ services:
 
   # Replacement for LGTM in AWS (Lighter)
   grafana:
-    profiles: [ "aws" ]
+    profiles: [ "observability" ]
     image: grafana/grafana:10.4.0
     ports:
       - "3000:3000"
@@ -240,6 +244,7 @@ services:
 
   # --- THE BRAIN: OpenTelemetry Collector ---
   otel-collector:
+    profiles: [ "observability" ]
     image: otel/opentelemetry-collector-contrib:latest
     command: [ "--config=/etc/otel-collector-config.yaml" ]
     volumes:
@@ -264,12 +269,12 @@ services:
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
       # Flyway Configuration
-#      SPRING_FLYWAY_ENABLED: "true"
-#      SPRING_FLYWAY_LOCATIONS: classpath:db/migration
-#      SPRING_FLYWAY_CLEAN_DISABLED: "false"
-#      SPRING_SQL_INIT_MODE: never
-#      SPRING_JPA_HIBERNATE_DDL_AUTO: none
-#      LOGGING_LEVEL_ORG_FLYWAYDB: DEBUG
+      #      SPRING_FLYWAY_ENABLED: "true"
+      #      SPRING_FLYWAY_LOCATIONS: classpath:db/migration
+      #      SPRING_FLYWAY_CLEAN_DISABLED: "false"
+      #      SPRING_SQL_INIT_MODE: never
+      #      SPRING_JPA_HIBERNATE_DDL_AUTO: none
+      #      LOGGING_LEVEL_ORG_FLYWAYDB: DEBUG
       # OTel Pipeline
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_DOTNET_AUTO_LOGS_INCLUDE_FORMATTED_MESSAGE: true
@@ -294,7 +299,7 @@ services:
       MANAGEMENT_OPENTELEMETRY_INSTRUMENTATION_LOGBACK_APPENDER_ENABLED: "true"
       LOGGING_STRUCTURED_FORMAT_CONSOLE: "otlp"
 
-    depends_on: [ kafka, weaviate, otel-collector ]
+    depends_on: [ kafka, weaviate ]
 
   # 7. Frontend UI
   phoenix-frontend:
