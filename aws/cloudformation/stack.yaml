@@ -427,6 +427,8 @@ Resources:
                     MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_ENABLED: "${OTelEnabled}"
                     MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_ENABLED: "${OTelEnabled}"
                     MANAGEMENT_OPENTELEMETRY_METRICS_EXPORT_ENABLED: "${OTelEnabled}"
+                    MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "${OTelEnabled}"
+                    MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED: "${OTelEnabled}"
                     MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "${OTelSampleRate}"
                   logging:
                     driver: awslogs
