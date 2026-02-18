@@ -467,7 +467,7 @@ Resources:
               if [ "${EnvironmentMode}" == "production" ]; then
                 PROFILES="aws,observability"
               fi
-              /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml --profile $PROFILES up -d
+              /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml --profile $PROFILES up -d --no-build
               chown -R ec2-user:ec2-user /opt/phoenix
               chown -R ec2-user:ec2-user /opt/phoenix
               
