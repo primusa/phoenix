@@ -121,7 +121,7 @@ services:
     environment:
       - OLLAMA_KEEP_ALIVE=-1m
     command: >
-      -c " ollama serve & SERVER_PID=$!; until ollama status >/dev/null 2>&1; do sleep 1; done; ollama pull tinyllama && ollama pull nomic-embed-text; wait $SERVER_PID "
+      -c " ollama serve & SERVER_PID=$$!; until ollama status >/dev/null 2>&1; do sleep 1; done; ollama pull tinyllama && ollama pull nomic-embed-text; wait $$SERVER_PID "
     # ollama run tinyllama 'ping' --keepalive -1m &&
     # ollama run nomic-embed-text 'ping' --keepalive -1m &&
     restart: unless-stopped

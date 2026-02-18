@@ -11,7 +11,6 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Production (Secure & Slim)
-# ... (Stage 1 remains the same)
 
 # Stage 2: Production
 FROM nginx:alpine

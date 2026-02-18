@@ -59,6 +59,7 @@ Conditions:
   CreatePublicSubnet2: !And [!Condition CreatePublicSubnets, !Condition UseALB]
   CreateIGW: !Equals [!Ref InternetGatewayId, "NONE"]
   NotCreateIGW: !Not [!Condition CreateIGW]
+  ObservabilityWithALB: !And [!Condition IsProd, !Condition UseALB]
 
 Resources:
 
@@ -346,169 +347,171 @@ Resources:
           - ResourceType: instance
             Tags: [{ Key: project, Value: phoenix }, { Key: deployment-id, Value: !Ref DeploymentId }]
         UserData:
-          Fn::Base64: !Sub |
-            #!/bin/bash -xe
-            set -e
-            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
-            echo "Starting Phoenix Bootstrap (DeploymentId: ${DeploymentId})..."
-            yum update -y
-            yum install -y git jq
-            yum install -y git jq
+          Fn::Base64: !Sub 
+            - |
+              #!/bin/bash -xe
+              set -e
+              exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+              echo "Starting Phoenix Bootstrap (DeploymentId: ${DeploymentId})..."
+              yum update -y
+              yum install -y git jq
+              yum install -y git jq
 
-            # Enable the correct Amazon Linux extras repo for PostgreSQL 14
-            amazon-linux-extras enable postgresql14
-            yum install -y postgresql
-            psql --version
+              # Enable the correct Amazon Linux extras repo for PostgreSQL 14
+              amazon-linux-extras enable postgresql14
+              yum install -y postgresql
+              psql --version
 
 
-            amazon-linux-extras install docker -y
-            
-            # Liimt local logs to < 1GB total
-            cat > /etc/docker/daemon.json <<EOF
-            {
-              "log-driver": "json-file",
-              "log-opts": {
-                "max-size": "20m", 
-                "max-file": "5"
+              amazon-linux-extras install docker -y
+              
+              # Liimt local logs to < 1GB total
+              cat > /etc/docker/daemon.json <<EOF
+              {
+                "log-driver": "json-file",
+                "log-opts": {
+                  "max-size": "20m", 
+                  "max-file": "5"
+                }
               }
-            }
-            EOF
-            
-            systemctl enable --now docker
-            for i in {1..10}; do [ -S /var/run/docker.sock ] && break || sleep 2; done
-            
-            if [ ! -f /swapfile ]; then
-              dd if=/dev/zero of=/swapfile bs=1G count=12
-              chmod 600 /swapfile
-              mkswap /swapfile
-              swapon /swapfile
-              echo '/swapfile none swap sw 0 0' >> /etc/fstab
-            fi
-            
-            curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/bin/docker-compose
-            chmod +x /usr/bin/docker-compose
-            usermod -a -G docker ec2-user
-            
-            ACCOUNT_ID=${AWS::AccountId}
-            REGION=${AWS::Region}
-            ECR_REPO_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/${PhoenixServiceRepoName}"
-            ECR_UI_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/${PhoenixUiRepoName}"
-            
-            aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com || true
-            
-            cd /opt
-            [ -d "phoenix" ] || git clone https://github.com/primusa/phoenix.git
-            cd phoenix
-            git pull
-            docker system prune -af
-            docker pull $ECR_REPO_URI:latest || true
-            docker pull $ECR_UI_URI:latest || true
-            
-            export PHOENIX_ECR_URI="$ECR_REPO_URI"
-            export PHOENIX_UI_ECR_URI="$ECR_UI_URI"
-            
-            # RDS Connection Info
-            export DB_HOST="${PhoenixRDS.Endpoint.Address}"
-            export DB_PORT="${PhoenixRDS.Endpoint.Port}"
-            export DB_USER="postgres"
-            export DB_PASS="postgres"
-            export DB_NAME="insurance_corp"
-            
-            cat > docker-compose-override.yml <<EOF
-            services:
-              phoenix-backend:
-                image: ${!PHOENIX_ECR_URI}:latest
-                environment:
-                  SPRING_DATASOURCE_URL: jdbc:postgresql://${!DB_HOST}:${!DB_PORT}/${!DB_NAME}
-                  SPRING_DATASOURCE_USERNAME: ${!DB_USER}
-                  SPRING_DATASOURCE_PASSWORD: ${!DB_PASS}
-                  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_ENABLED: !If [IsProd, "true", "false"]
-                  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_ENABLED: !If [IsProd, "true", "false"]
-                  MANAGEMENT_OPENTELEMETRY_METRICS_EXPORT_ENABLED: !If [IsProd, "true", "false"]
-                  MANAGEMENT_TRACING_SAMPLING_PROBABILITY: !If [IsProd, "1.0", "0.0"]
-                logging:
-                  driver: awslogs
-                  options:
-                    awslogs-region: ${AWS::Region}
-                    awslogs-group: ${PhoenixLogGroup}
-                    awslogs-stream: backend
-              phoenix-frontend:
-                image: ${!PHOENIX_UI_ECR_URI}:latest
-                logging:
-                  driver: awslogs
-                  options:
-                    awslogs-region: ${AWS::Region}
-                    awslogs-group: ${PhoenixLogGroup}
-                    awslogs-stream: frontend
-              ollama:
-                logging:
-                  driver: awslogs
-                  options:
-                    awslogs-region: ${AWS::Region}
-                    awslogs-group: ${PhoenixLogGroup}
-                    awslogs-stream: ollama
-              otel-collector:
-                profiles: [ !If [IsProd, "observability", "none"] ]
-                volumes:
-                  - ./otel-collector-config-aws.yaml:/etc/otel-collector-config.yaml
-                logging:
-                  driver: awslogs
-                  options:
-                    awslogs-region: ${AWS::Region}
-                    awslogs-group: ${PhoenixLogGroup}
-                    awslogs-stream: otel
-            EOF
+              EOF
+              
+              systemctl enable --now docker
+              for i in {1..10}; do [ -S /var/run/docker.sock ] && break || sleep 2; done
+              
+              if [ ! -f /swapfile ]; then
+                dd if=/dev/zero of=/swapfile bs=1G count=12
+                chmod 600 /swapfile
+                mkswap /swapfile
+                swapon /swapfile
+                echo '/swapfile none swap sw 0 0' >> /etc/fstab
+              fi
+              
+              curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/bin/docker-compose
+              chmod +x /usr/bin/docker-compose
+              usermod -a -G docker ec2-user
+              
+              ACCOUNT_ID=${AWS::AccountId}
+              REGION=${AWS::Region}
+              ECR_REPO_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/${PhoenixServiceRepoName}"
+              ECR_UI_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/${PhoenixUiRepoName}"
+              
+              aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com || true
+              
+              cd /opt
+              [ -d "phoenix" ] || git clone https://github.com/primusa/phoenix.git
+              cd phoenix
+              git pull
+              docker system prune -af
+              docker pull $ECR_REPO_URI:latest || true
+              docker pull $ECR_UI_URI:latest || true
+              
+              export PHOENIX_ECR_URI="$ECR_REPO_URI"
+              export PHOENIX_UI_ECR_URI="$ECR_UI_URI"
+              
+              # RDS Connection Info
+              export DB_HOST="${PhoenixRDS.Endpoint.Address}"
+              export DB_PORT="${PhoenixRDS.Endpoint.Port}"
+              export DB_USER="postgres"
+              export DB_PASS="postgres"
+              export DB_NAME="insurance_corp"
+              
+              cat > docker-compose-override.yml <<EOF
+              services:
+                phoenix-backend:
+                  image: ${!PHOENIX_ECR_URI}:latest
+                  environment:
+                    SPRING_DATASOURCE_URL: jdbc:postgresql://${!DB_HOST}:${!DB_PORT}/${!DB_NAME}
+                    SPRING_DATASOURCE_USERNAME: ${!DB_USER}
+                    SPRING_DATASOURCE_PASSWORD: ${!DB_PASS}
+                    MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_ENABLED: "${OTelEnabled}"
+                    MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_ENABLED: "${OTelEnabled}"
+                    MANAGEMENT_OPENTELEMETRY_METRICS_EXPORT_ENABLED: "${OTelEnabled}"
+                    MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "${OTelSampleRate}"
+                  logging:
+                    driver: awslogs
+                    options:
+                      awslogs-region: ${AWS::Region}
+                      awslogs-group: ${PhoenixLogGroup}
+                      awslogs-stream: backend
+                phoenix-frontend:
+                  image: ${!PHOENIX_UI_ECR_URI}:latest
+                  logging:
+                    driver: awslogs
+                    options:
+                      awslogs-region: ${AWS::Region}
+                      awslogs-group: ${PhoenixLogGroup}
+                      awslogs-stream: frontend
+                ollama:
+                  logging:
+                    driver: awslogs
+                    options:
+                      awslogs-region: ${AWS::Region}
+                      awslogs-group: ${PhoenixLogGroup}
+                      awslogs-stream: ollama
+                otel-collector:
+                  volumes:
+                    - ./otel-collector-config-aws.yaml:/etc/otel-collector-config.yaml
+                  logging:
+                    driver: awslogs
+                    options:
+                      awslogs-region: ${AWS::Region}
+                      awslogs-group: ${PhoenixLogGroup}
+                      awslogs-stream: otel
+              EOF
 
-            PROFILES="aws"
-            if [ "${EnvironmentMode}" == "production" ]; then
-              PROFILES="aws,observability"
-            fi
-            /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml --profile $PROFILES up -d
-            chown -R ec2-user:ec2-user /opt/phoenix
-            chown -R ec2-user:ec2-user /opt/phoenix
-            
-            echo "Initializing Database..."
-            bash ./scripts/init-db-rds.sh || true
+              PROFILES="aws"
+              if [ "${EnvironmentMode}" == "production" ]; then
+                PROFILES="aws,observability"
+              fi
+              /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml --profile $PROFILES up -d
+              chown -R ec2-user:ec2-user /opt/phoenix
+              chown -R ec2-user:ec2-user /opt/phoenix
+              
+              echo "Initializing Database..."
+              bash ./scripts/init-db-rds.sh || true
 
-            
-            echo "Setting up connect-debezium..."
-            # Adjust setup-debezium.sh logic inline or create new
-            cat > setup-debezium-rds.sh <<EOF_DEBEZIUM
-            #!/bin/bash
-            echo "Waiting for Debezium..."
-            until curl -s -f -m 5 -o /dev/null http://localhost:8083; do
-              sleep 2
-            done
-            
-            # Wait for App to likely have created the table (or just rely on Debezium retries/errors until table exists)
-            # A small sleep to give Spring Boot a head start
-            sleep 15
-            
-            echo "Registering RDS connector..."
-            curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" \
-              http://localhost:8083/connectors/ -d '{
-              "name": "insurance-connector",
-              "config": {
-                "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
-                "database.hostname": "'"\$DB_HOST"'",
-                "database.port": "'"\$DB_PORT"'",
-                "database.user": "'"\$DB_USER"'",
-                "database.password": "'"\$DB_PASS"'",
-                "database.dbname": "'"\$DB_NAME"'",
-                "topic.prefix": "legacy",
-                "table.include.list": "public.claims",
-                "plugin.name": "pgoutput",
-                "slot.name": "insurance_slot",
-                "publication.autocreate.mode": "filtered",
-                "snapshot.mode": "initial"
-              }
-            }'
-            EOF_DEBEZIUM
-            chmod +x setup-debezium-rds.sh
-            ./setup-debezium-rds.sh || true
-            
-            sleep 10
-            /usr/bin/docker-compose ps
+              
+              echo "Setting up connect-debezium..."
+              # Adjust setup-debezium.sh logic inline or create new
+              cat > setup-debezium-rds.sh <<EOF_DEBEZIUM
+              #!/bin/bash
+              echo "Waiting for Debezium..."
+              until curl -s -f -m 5 -o /dev/null http://localhost:8083; do
+                sleep 2
+              done
+              
+              # Wait for App to likely have created the table (or just rely on Debezium retries/errors until table exists)
+              # A small sleep to give Spring Boot a head start
+              sleep 15
+              
+              echo "Registering RDS connector..."
+              curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" \
+                http://localhost:8083/connectors/ -d '{
+                "name": "insurance-connector",
+                "config": {
+                  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+                  "database.hostname": "'"\$DB_HOST"'",
+                  "database.port": "'"\$DB_PORT"'",
+                  "database.user": "'"\$DB_USER"'",
+                  "database.password": "'"\$DB_PASS"'",
+                  "database.dbname": "'"\$DB_NAME"'",
+                  "topic.prefix": "legacy",
+                  "table.include.list": "public.claims",
+                  "plugin.name": "pgoutput",
+                  "slot.name": "insurance_slot",
+                  "publication.autocreate.mode": "filtered",
+                  "snapshot.mode": "initial"
+                }
+              }'
+              EOF_DEBEZIUM
+              chmod +x setup-debezium-rds.sh
+              ./setup-debezium-rds.sh || true
+              
+              sleep 10
+              /usr/bin/docker-compose ps
+            - OTelEnabled: !If [IsProd, "true", "false"]
+              OTelSampleRate: !If [IsProd, "1.0", "0.0"]
 
   ########################
   # EC2 / ASG / ALB
@@ -556,7 +559,7 @@ Resources:
       Protocol: HTTP
 
   MonitoringTargetGroup:
-    Condition: !And [IsProd, UseALB]
+    Condition: ObservabilityWithALB
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       VpcId: !Ref VpcId
@@ -564,7 +567,7 @@ Resources:
       Protocol: HTTP
 
   JaegerTargetGroup:
-    Condition: !And [IsProd, UseALB]
+    Condition: ObservabilityWithALB
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       VpcId: !Ref VpcId
@@ -604,7 +607,7 @@ Resources:
           Values: [/api/*]
 
   GrafanaRule:
-    Condition: !And [IsProd, UseALB]
+    Condition: ObservabilityWithALB
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       ListenerArn: !Ref PhoenixListener
@@ -615,7 +618,7 @@ Resources:
           Values: [/grafana*]
 
   JaegerRule:
-    Condition: !And [IsProd, UseALB]
+    Condition: ObservabilityWithALB
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       ListenerArn: !Ref PhoenixListener
