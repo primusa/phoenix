@@ -132,7 +132,11 @@ public class ClaimModernizationService {
                             .call()
                             .content();
 
-                    // 1. Save to Vector DB
+                    // 1. Update Legacy DB
+                    this.jdbcTemplate.update("UPDATE claims SET summary = ? WHERE id = ?", summary, claimId);
+                    log.info("Legacy DB updated for claim ID: {}", claimId);
+
+                    // 2. Save to Vector DB
                     try {
                         List<Document> docs = List.of(
                                 new Document(summary, Map.of("source", "legacy_db", "claim_id", claimId)));
@@ -145,12 +149,8 @@ public class ClaimModernizationService {
                         log.error("Vector Store Error: {}", ve.getMessage());
                     }
 
-                    // 2. Update Legacy DB
-                    this.jdbcTemplate.update("UPDATE claims SET summary = ? WHERE id = ?", summary, claimId);
-
                     // Final Success Event
                     enrichmentObs.event(Observation.Event.of("pipeline.complete"));
-                    log.info("Legacy DB updated for claim ID: {}", claimId);
 
                 } catch (Exception e) {
                     enrichmentObs.error(e); // Attach error to Jaeger trace
