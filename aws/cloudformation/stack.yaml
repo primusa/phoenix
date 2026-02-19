@@ -430,6 +430,9 @@ Resources:
                     MANAGEMENT_OPENTELEMETRY_METRICS_EXPORT_ENABLED: "${OTelEnabled}"
                     MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "${OTelEnabled}"
                     MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED: "${OTelEnabled}"
+                    MANAGEMENT_TRACING_ENABLED: "${OTelEnabled}"
+                    MANAGEMENT_METRICS_EXPORT_OTLP_ENABLED: "${OTelEnabled}"
+                    OTEL_SDK_DISABLED: "${OTelDisabled}"
                     MANAGEMENT_OTLP_METRICS_EXPORT_URL: "http://${OTelEndpoint}:4318/v1/metrics"
                     MANAGEMENT_OTLP_TRACING_ENDPOINT: "http://${OTelEndpoint}:4318/v1/traces"
                     MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: "http://${OTelEndpoint}:4318/v1/traces"
@@ -521,6 +524,7 @@ Resources:
               sleep 10
               /usr/bin/docker-compose ps
             - OTelEnabled: !If [IsProd, "true", "false"]
+              OTelDisabled: !If [IsProd, "false", "true"]
               OTelEndpoint: !If [IsProd, "otel-collector", "127.0.0.1"]
               OTelSampleRate: !If [IsProd, "1.0", "0.0"]
 

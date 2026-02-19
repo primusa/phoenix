@@ -92,13 +92,11 @@ function App() {
 
   const handleProviderChange = async (p) => {
     setProvider(p)
-    await axios.post(`${API_BASE}/config/ai-provider`, { provider: p, temperature: temperature })
     toast(`Engine: Switched to ${p.toUpperCase()}`, { icon: '🤖' })
   }
 
   const handleTemperatureChange = async (t) => {
     setTemperature(t)
-    await axios.post(`${API_BASE}/config/ai-provider`, { provider: provider, temperature: t })
     toast(`Engine: Temperature set to ${t}`, { icon: '🌡️' })
   }
 

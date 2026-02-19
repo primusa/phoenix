@@ -149,7 +149,7 @@ public class ClaimModernizationService {
                     try {
                         List<Document> docs = List.of(
                                 new Document(summary, Map.of("source", "legacy_db", "claim_id", claimId)));
-                        this.vectorStoreManager.get().store().add(docs);
+                        this.vectorStoreManager.getStore(claimProvider).add(docs);
 
                         // Explicitly log the Vector Sync event for Jaeger
                         enrichmentObs.event(Observation.Event.of("vector.store.sync"));

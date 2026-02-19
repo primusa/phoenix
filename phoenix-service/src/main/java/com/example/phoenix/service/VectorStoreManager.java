@@ -61,12 +61,22 @@ public class VectorStoreManager {
         });
     }
 
-    private WeaviateVectorStore lookupStore(AiProvider provider) {
+    public WeaviateVectorStore lookupStore(AiProvider provider) {
         return switch (provider) {
             case OLLAMA -> ollamaStore;
             case GEMINI -> geminiStore;
             case OPENAI -> openaiStore;
         };
+    }
+
+    public WeaviateVectorStore getStore(String providerName) {
+        try {
+            AiProvider provider = AiProvider.valueOf(providerName.toUpperCase());
+            return lookupStore(provider);
+        } catch (Exception e) {
+            log.warn("Invalid provider: {}. Using fallback/current default.", providerName);
+            return currentActiveStore.get().store();
+        }
     }
 
     public ActiveStore get() {
