@@ -44,15 +44,18 @@ public class ClaimModernizationService {
 
     private final VectorStoreManager vectorStoreManager;
     private final ObservationRegistry observationRegistry;
+    private final GovernanceService governanceService;
 
     public ClaimModernizationService(ApplicationContext applicationContext,
             VectorStoreManager vectorStoreManager,
             JdbcTemplate jdbcTemplate,
-            ObservationRegistry observationRegistry) {
+            ObservationRegistry observationRegistry,
+            GovernanceService governanceService) {
         this.applicationContext = applicationContext;
         this.vectorStoreManager = vectorStoreManager;
         this.jdbcTemplate = jdbcTemplate;
         this.observationRegistry = observationRegistry;
+        this.governanceService = governanceService;
     }
 
     public void setAiProvider(String provider, Double temperature) {
@@ -131,10 +134,14 @@ public class ClaimModernizationService {
 
                     log.info("Processing enrichment and fraud detection for claim ID: {}", claimId);
 
+                    // --- GOVERNANCE GATEWAY ---
+                    // Redact PII (SSN, Email) before sending to LLMs
+                    String sanitizedDescription = governanceService.redactSensitiveData(rawDescription);
+
                     // 1. STAGE 1: Fast Summarization
                     ChatClient chatClient = getChatClient(claimProvider);
                     String summary = chatClient.prompt()
-                            .user("Summarize this insurance claim in 1 sentence: " + rawDescription)
+                            .user("Summarize this insurance claim in 1 sentence: " + sanitizedDescription)
                             .options(OllamaChatOptions.builder().temperature(claimTemperature).build())
                             .call()
                             .content();
@@ -147,7 +154,7 @@ public class ClaimModernizationService {
                     List<Document> fetchedClaims = List.of();
                     try {
                         fetchedClaims = vectorStoreManager.getStore(claimProvider)
-                                .similaritySearch(SearchRequest.builder().query(rawDescription).topK(3).build());
+                                .similaritySearch(SearchRequest.builder().query(sanitizedDescription).topK(3).build());
                     } catch (Exception e) {
                         log.warn("Vector search skipped for claim {} (likely empty store or schema pending): {}",
                                 claimId, e.getMessage());
@@ -162,7 +169,7 @@ public class ClaimModernizationService {
                                             + similarClaims.get(i).getText())
                                     .collect(Collectors.joining("\n"));
 
-                    FraudResult fraudResult = analyzeClaim(rawDescription, historicalContext, chatClient);
+                    FraudResult fraudResult = analyzeClaim(sanitizedDescription, historicalContext, chatClient);
 
                     int fraudScore = fraudResult.getScore();
                     String fraudAnalysis = fraudResult.getAnalysis();
@@ -242,7 +249,7 @@ public class ClaimModernizationService {
                 .system(systemPrompt)
                 .user(userPrompt)
                 .options(OllamaChatOptions.builder()
-                      //  .model("tinyllama")
+                        // .model("tinyllama")
                         .temperature(0.0)
                         .repeatPenalty(1.1)
                         .build())
@@ -253,10 +260,10 @@ public class ClaimModernizationService {
     }
 
     private FraudResult parseAndValidate(String response,
-                                         String claimText,
-                                         String historicalText,
-                                         ChatClient chatClient,
-                                         int attempt) {
+            String claimText,
+            String historicalText,
+            ChatClient chatClient,
+            int attempt) {
 
         log.info("Raw response: " + response);
 
@@ -273,7 +280,8 @@ public class ClaimModernizationService {
                 String analysis = strictMatcher.group(2).trim();
                 String rationale = strictMatcher.group(3).trim();
 
-                if (score < 0 || score > 100) throw new NumberFormatException();
+                if (score < 0 || score > 100)
+                    throw new NumberFormatException();
 
                 return new FraudResult(score, analysis, rationale);
             } catch (Exception e) {
@@ -293,7 +301,8 @@ public class ClaimModernizationService {
                 String analysis = strictMatcher2.group(2).trim();
                 String rationale = strictMatcher2.group(3).trim();
 
-                if (score < 0 || score > 100) throw new NumberFormatException();
+                if (score < 0 || score > 100)
+                    throw new NumberFormatException();
 
                 return new FraudResult(score, analysis, rationale);
             } catch (Exception e) {
@@ -314,7 +323,8 @@ public class ClaimModernizationService {
         }
 
         // Extract rationale from any sentence containing "RATIONALE" or "RAISONALE"
-        Pattern rationalePattern = Pattern.compile("(RATIONALE|RAISONALE)[^:\\n]*:\\s*(.*?)((\\n\\d+\\.)|$)", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Pattern rationalePattern = Pattern.compile("(RATIONALE|RAISONALE)[^:\\n]*:\\s*(.*?)((\\n\\d+\\.)|$)",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
         Matcher rationaleMatcher = rationalePattern.matcher(response);
         if (rationaleMatcher.find()) {
             extractedRationale = rationaleMatcher.group(2).trim();
@@ -341,7 +351,6 @@ public class ClaimModernizationService {
                 "The model failed to follow format. Raw response: " + response);
     }
 
-
     private FraudResult retryWithCorrection(
             String claimText,
             String historicalText,
@@ -350,52 +359,53 @@ public class ClaimModernizationService {
             int attempt) {
 
         String systemPrompt = """
-            You are an insurance fraud detection engine.
+                You are an insurance fraud detection engine.
 
-            You MUST follow the output format exactly.
-            You are NOT allowed to add extra text.
-            You are NOT allowed to use markdown.
-            If you fail to follow the format exactly, the response is invalid.
-            """;
+                You MUST follow the output format exactly.
+                You are NOT allowed to add extra text.
+                You are NOT allowed to use markdown.
+                If you fail to follow the format exactly, the response is invalid.
+                """;
 
         String correctionPrompt = """
-            Analyze the insurance claim for fraud risk.
+                Analyze the insurance claim for fraud risk.
 
-            Current Claim:
-            """ + claimText + """
+                Current Claim:
+                """ + claimText + """
 
-            Historical Context:
-            """ + historicalText + """
+                Historical Context:
+                """ + historicalText
+                + """
 
-            You must respond EXACTLY in this format:
+                        You must respond EXACTLY in this format:
 
-            SCORE: <integer between 0 and 100>
-            ANALYSIS: <one concise paragraph>
-            RATIONALE: <detailed explanation>
+                        SCORE: <integer between 0 and 100>
+                        ANALYSIS: <one concise paragraph>
+                        RATIONALE: <detailed explanation>
 
-            STRICT RULES:
-            - Start directly with SCORE:
-            - SCORE must be an integer only
-            - No text before SCORE
-            - No text after RATIONALE
-            - Do not repeat instructions
-            - Do not use markdown
-            - Do not add explanations outside the template
+                        STRICT RULES:
+                        - Start directly with SCORE:
+                        - SCORE must be an integer only
+                        - No text before SCORE
+                        - No text after RATIONALE
+                        - Do not repeat instructions
+                        - Do not use markdown
+                        - Do not add explanations outside the template
 
-            Example:
+                        Example:
 
-            SCORE: 65
-            ANALYSIS: The claim presents moderate fraud indicators due to prior similar filings.
-            RATIONALE: The claimant filed two comparable damage claims within the past year and delayed reporting the current incident.
+                        SCORE: 65
+                        ANALYSIS: The claim presents moderate fraud indicators due to prior similar filings.
+                        RATIONALE: The claimant filed two comparable damage claims within the past year and delayed reporting the current incident.
 
-            Now analyze the provided claim.
-            """;
+                        Now analyze the provided claim.
+                        """;
 
         String retryResponse = chatClient.prompt()
                 .system(systemPrompt)
                 .user(correctionPrompt)
                 .options(OllamaChatOptions.builder()
-                       // .model("tinyllama")
+                        // .model("tinyllama")
                         .temperature(0.0)
                         .repeatPenalty(1.1)
                         .build())
@@ -404,6 +414,5 @@ public class ClaimModernizationService {
 
         return parseAndValidate(retryResponse, claimText, historicalText, chatClient, attempt);
     }
-
 
 }

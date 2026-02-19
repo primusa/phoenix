@@ -444,6 +444,8 @@ Resources:
                     OTEL_INSTRUMENTATION_LOGGING_ENABLED: "${OTelEnabled}"
                     OTEL_INSTRUMENTATION_METRICS_ENABLED: "${OTelEnabled}"
                     OTEL_INSTRUMENTATION_TRACING_ENABLED: "${OTelEnabled}"
+                    OTEL_DOTNET_AUTO_LOGS_INCLUDE_FORMATTED_MESSAGE: "${OTelEnabled}"
+                    OTEL_INSTRUMENTATION_COMMON_DEFAULT_ENABLED: "${OTelEnabled}"
                     OTEL_SDK_DISABLED: "${OTelDisabled}"
                     OTEL_TRACES_EXPORTER: "${OTelExporter}"
                     OTEL_METRICS_EXPORTER: "${OTelExporter}"
