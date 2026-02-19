@@ -50,12 +50,24 @@ public class PhoenixController {
     }
 
     @PostMapping("/claims")
-    public Map<String, Object> createClaim(@RequestBody Map<String, String> payload) {
+    public Map<String, Object> createClaim(@RequestBody Map<String, Object> payload) {
         return Observation.createNotStarted("claim.creation", observationRegistry)
                 .observe(() -> {
-                    String description = payload.get("description");
-                    log.info("POST /api/claims called with description: {}", description);
-                    jdbcTemplate.update("INSERT INTO claims (description, status) VALUES (?, 'OPEN')", description);
+                    String description = (String) payload.get("description");
+                    String aiProvider = (String) payload.get("aiProvider");
+                    Object tempObj = payload.get("aiTemperature");
+                    Double aiTemperature = null;
+
+                    if (tempObj != null) {
+                        aiTemperature = Double.valueOf(tempObj.toString());
+                    }
+
+                    log.info("POST /api/claims called with description: {}, provider: {}, temp: {}",
+                            description, aiProvider, aiTemperature);
+
+                    jdbcTemplate.update(
+                            "INSERT INTO claims (description, status, ai_provider, ai_temperature) VALUES (?, 'OPEN', ?, ?)",
+                            description, aiProvider, aiTemperature);
                     return Map.of("status", "success");
                 });
     }

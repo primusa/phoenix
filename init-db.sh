@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS claims (
     description TEXT,
     summary TEXT,
     status VARCHAR(50) DEFAULT 'OPEN',
+    ai_provider VARCHAR(50),
+    ai_temperature DOUBLE PRECISION,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 -- Ensure Debezium sees the OLD values on UPDATES/DELETES

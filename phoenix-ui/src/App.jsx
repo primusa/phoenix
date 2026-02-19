@@ -119,7 +119,11 @@ function App() {
     addLog(`PG_SOURCE: Transaction committed to public.claims`, "db")
     try {
       const initialCount = claims.length
-      await axios.post(`${API_BASE}/claims`, { description: newClaim })
+      await axios.post(`${API_BASE}/claims`, {
+        description: newClaim,
+        aiProvider: provider,
+        aiTemperature: temperature
+      })
       setNewClaim('')
       setTimeout(() => { setPipelineStep(2); addLog(`KAFKA_CDC: Captured event. Topic: 'claims.raw'`, "kafka") }, 800)
       setTimeout(() => { setPipelineStep(3); addLog(`AI_ENGINE: Synthesizing via ${provider}...`, "ai") }, 1800)

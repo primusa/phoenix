@@ -62,17 +62,18 @@ public class ClaimModernizationService {
         return this.vectorStoreManager.get().temperature();
     }
 
-    private ChatClient getChatClient() {
+    private ChatClient getChatClient(String providerName) {
         ChatModel chatModel;
-        AiProvider provider = this.vectorStoreManager.get().provider();
+        AiProvider provider = AiProvider.OLLAMA;
 
         try {
-            if (provider == AiProvider.OPENAI) {
+            if ("openai".equalsIgnoreCase(providerName)) {
+                provider = AiProvider.OPENAI;
                 chatModel = applicationContext.getBean(OpenAiChatModel.class);
-            } else if (provider == AiProvider.GEMINI) {
+            } else if ("gemini".equalsIgnoreCase(providerName)) {
+                provider = AiProvider.GEMINI;
                 chatModel = applicationContext.getBean(VertexAiGeminiChatModel.class);
             } else {
-                // Default to Ollama
                 chatModel = applicationContext.getBean(OllamaChatModel.class);
             }
             log.debug("ChatClient initialized with provider: {}", provider);
@@ -111,9 +112,16 @@ public class ClaimModernizationService {
                     JsonNode after = payloadNode.get("after");
                     int claimId = after.get("id").asInt();
                     String rawDescription = after.get("description").asText();
+                    String claimProvider = after.has("ai_provider") && !after.get("ai_provider").isNull()
+                            ? after.get("ai_provider").asText()
+                            : getAiProvider();
+                    double claimTemperature = after.has("ai_temperature") && !after.get("ai_temperature").isNull()
+                            ? after.get("ai_temperature").asDouble()
+                            : getTemperature();
 
                     // Add metadata to the trace span
                     enrichmentObs.lowCardinalityKeyValue("claim.id", String.valueOf(claimId));
+                    enrichmentObs.lowCardinalityKeyValue("ai.provider", claimProvider);
 
                     if (after.has("summary") && !after.get("summary").isNull()
                             && !after.get("summary").asText().isEmpty()) {
@@ -121,13 +129,14 @@ public class ClaimModernizationService {
                         return;
                     }
 
-                    log.info("Processing enrichment for claim ID: {}. Model: {}", claimId, getAiProvider());
+                    log.info("Processing enrichment for claim ID: {}. Model: {}, Temp: {}",
+                            claimId, claimProvider, claimTemperature);
 
                     // AI Enrichment with Trace Context
-                    String summary = getChatClient().prompt()
+                    String summary = getChatClient(claimProvider).prompt()
                             .user("Summarize this insurance claim in 1 sentence: " + rawDescription)
                             .options(OllamaChatOptions.builder()
-                                    .temperature(getTemperature())
+                                    .temperature(claimTemperature)
                                     .build())
                             .call()
                             .content();
