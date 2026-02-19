@@ -1,5 +1,6 @@
 package com.example.phoenix.config;
 
+import java.util.List;
 import java.util.Map;
 
 import org.slf4j.Logger;
@@ -47,6 +48,36 @@ public class VectorStoreConfig {
 
         return WeaviateVectorStore.builder(weaviateClient, embeddingModel)
                 .build();
+    }
+
+    @Bean
+    public CommandLineRunner initializeWeaviateSchema(
+            @Qualifier("ollamaVectorStore") WeaviateVectorStore ollamaStore,
+            @Qualifier("geminiVectorStore") WeaviateVectorStore geminiStore,
+            @Qualifier("openaiVectorStore") WeaviateVectorStore openaiStore) {
+        return args -> {
+            log.info("Initializing Weaviate Schemas (Retry logic enabled)...");
+            List<WeaviateVectorStore> stores = List.of(ollamaStore, geminiStore, openaiStore);
+
+            for (int i = 0; i < 3; i++) {
+                try {
+                    for (WeaviateVectorStore store : stores) {
+                        if (store instanceof org.springframework.beans.factory.InitializingBean ib) {
+                            ib.afterPropertiesSet();
+                        }
+                    }
+                    log.info("Weaviate Schemas initialized successfully on attempt {}", i + 1);
+                    return; // Success
+                } catch (Exception e) {
+                    log.warn("Attempt {} to initialize Weaviate failed: {}. Retrying in 5s...", i + 1, e.getMessage());
+                    try {
+                        Thread.sleep(5000);
+                    } catch (InterruptedException ignored) {
+                    }
+                }
+            }
+            log.error("Failed to initialize Weaviate Schema after all retries.");
+        };
     }
 
     @Bean

@@ -104,7 +104,8 @@ services:
     environment:
       QUERY_DEFAULTS_LIMIT: 25
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
-      DEFAULT_VECTORIZER_MODULE: 'text2vec-openai'
+      DEFAULT_VECTORIZER_MODULE: 'none'
+      ENABLE_MODULES: ''
 
   # 4. Local AI (Ollama) - Optional
   ollama:
@@ -269,12 +270,15 @@ services:
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
       # Flyway Configuration
-      #      SPRING_FLYWAY_ENABLED: "true"
-      #      SPRING_FLYWAY_LOCATIONS: classpath:db/migration
-      #      SPRING_FLYWAY_CLEAN_DISABLED: "false"
-      #      SPRING_SQL_INIT_MODE: never
-      #      SPRING_JPA_HIBERNATE_DDL_AUTO: none
-      #      LOGGING_LEVEL_ORG_FLYWAYDB: DEBUG
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_FLYWAY_LOCATIONS: "classpath:db/migration"
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"
+      SPRING_FLYWAY_BASELINE_VERSION: "0"
+      SPRING_FLYWAY_OUT_OF_ORDER: "true"
+      SPRING_FLYWAY_REPAIR_ON_MIGRATE: "true"
+      SPRING_SQL_INIT_MODE: "never"
+      SPRING_JPA_HIBERNATE_DDL_AUTO: "none"
+      LOGGING_LEVEL_ORG_FLYWAYDB: "DEBUG"
       # OTel Pipeline
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_DOTNET_AUTO_LOGS_INCLUDE_FORMATTED_MESSAGE: true
@@ -299,7 +303,11 @@ services:
       MANAGEMENT_OPENTELEMETRY_INSTRUMENTATION_LOGBACK_APPENDER_ENABLED: "true"
       LOGGING_STRUCTURED_FORMAT_CONSOLE: "otlp"
 
-    depends_on: [ kafka, weaviate ]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      weaviate:
+        condition: service_started
 
   # 7. Frontend UI
   phoenix-frontend:
