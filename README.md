@@ -55,13 +55,15 @@ graph TD
         
         subgraph "AI Modernization Pipeline"
             SB -->|1. Sanitize| GS[Governance Service]
-            GS -->|2. Search| VDB[(PGVector / RDS)]
-            VDB -->|3. Context| LLM[Gemini / Ollama]
-            LLM -->|4. Fraud Detection RAG| IA[Intelligence Assessment]
+            GS -->|2. Fast Summary| SUM[AI Summary]
+            SUM -->|3. Semantic Search| VDB[(PGVector / RDS)]
+            VDB -->|4. Context| LLM[Gemini / Ollama]
+            LLM -->|5. Fraud Detection RAG| IA[Intelligence Assessment]
         end
     end
 
-    IA -->|Score & Rationale| SB
+    IA -->|Deep Insights| SB
+    SUM -->|Instant Brief| SB
     SB -->|Webhooks/API| UI[React Dashboard]
     
     style LDB fill:#ff9999,stroke:#333
@@ -69,6 +71,7 @@ graph TD
     style SB fill:#99ff99,stroke:#333
     style VDB fill:#9999ff,stroke:#333
     style LLM fill:#ffcc99,stroke:#333
+    style SUM fill:#99f0ff,stroke:#333
     style IA fill:#ffdd99,stroke:#333
 ```
 
