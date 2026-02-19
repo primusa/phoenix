@@ -433,11 +433,15 @@ Resources:
                     MANAGEMENT_TRACING_ENABLED: "${OTelEnabled}"
                     MANAGEMENT_METRICS_EXPORT_OTLP_ENABLED: "${OTelEnabled}"
                     OTEL_SDK_DISABLED: "${OTelDisabled}"
+                    OTEL_TRACES_EXPORTER: "${OTelExporter}"
+                    OTEL_METRICS_EXPORTER: "${OTelExporter}"
+                    OTEL_LOGS_EXPORTER: "${OTelExporter}"
                     MANAGEMENT_OTLP_METRICS_EXPORT_URL: "http://${OTelEndpoint}:4318/v1/metrics"
                     MANAGEMENT_OTLP_TRACING_ENDPOINT: "http://${OTelEndpoint}:4318/v1/traces"
                     MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: "http://${OTelEndpoint}:4318/v1/traces"
                     MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: "http://${OTelEndpoint}:4318/v1/logs"
                     MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "${OTelSampleRate}"
+                    LOGGING_STRUCTURED_FORMAT_CONSOLE: "${OTelLogFormat}"
                   logging:
                     driver: awslogs
                     options:
@@ -525,6 +529,8 @@ Resources:
               /usr/bin/docker-compose ps
             - OTelEnabled: !If [IsProd, "true", "false"]
               OTelDisabled: !If [IsProd, "false", "true"]
+              OTelExporter: !If [IsProd, "otlp", "none"]
+              OTelLogFormat: !If [IsProd, "otlp", "standard"]
               OTelEndpoint: !If [IsProd, "otel-collector", "127.0.0.1"]
               OTelSampleRate: !If [IsProd, "1.0", "0.0"]
 
