@@ -25,7 +25,7 @@ const STAGES = [
   { id: 1, label: 'Postgres WAL', icon: <Database className="w-4 h-4" /> },
   { id: 2, label: 'Kafka Stream', icon: <Zap className="w-4 h-4" /> },
   { id: 3, label: 'AI Summary', icon: <Brain className="w-4 h-4" /> },
-  { id: 4, label: 'Fraud RAG', icon: <ShieldCheck className="w-4 h-4" /> },
+  { id: 4, label: 'Fraud Detection RAG', icon: <ShieldCheck className="w-4 h-4" /> },
 ]
 
 function App() {
@@ -106,7 +106,7 @@ function App() {
       if (!latest.summary) {
         setPipelineStep(2); // In flight: WAL/CDC/AI processing
       } else if (latest.fraud_score === -1) {
-        setPipelineStep(4); // In flight: Fraud RAG
+        setPipelineStep(4); // In flight: Fraud Detection RAG
       } else if (latest.fraud_score >= 0) {
         setPipelineStep(5); // Complete
         const timer = setTimeout(() => setPipelineStep(0), 8000);
@@ -189,7 +189,7 @@ function App() {
                   <div>
                     <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight leading-none italic">Phoenix // Intelligence Engine</h1>
                     <span className="text-[10px] md:text-[11px] font-bold text-slate-500 mt-2 uppercase tracking-tight md:tracking-widest flex items-center flex-wrap gap-2">
-                      <Zap className="w-3 h-3 text-orange-400" /> WAL STREAMING ➜ KAFKA CDC ➜ AI SUMMARY ➜ FRAUD RAG
+                      <Zap className="w-3 h-3 text-orange-400" /> WAL STREAMING ➜ KAFKA CDC ➜ AI SUMMARY ➜ FRAUD DETECTION RAG
                     </span>
                   </div>
 
