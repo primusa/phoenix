@@ -139,73 +139,80 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col md:flex-row">
       <Toaster position="top-right" />
 
-      <nav className="fixed left-0 top-0 h-full w-20 bg-slate-900 flex flex-col items-center py-8 gap-8 z-[100]">
-        <div className="p-3 bg-indigo-600 rounded-xl shadow-lg"><Brain className="w-8 h-8 text-white" /></div>
-        <button onClick={() => setView('app')} className={`p-3 rounded-xl transition-all ${view === 'app' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-white'}`}><LayoutDashboard className="w-6 h-6" /></button>
-        {isLocal && <button onClick={() => setView('monitoring')} className={`p-3 rounded-xl transition-all ${view === 'monitoring' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-white'}`}><Activity className="w-6 h-6" /></button>}
+      {/* Responsive Navigation */}
+      <nav className="fixed bottom-0 left-0 w-full h-16 bg-slate-900 flex flex-row items-center justify-around px-4 z-[100] md:fixed md:left-0 md:top-0 md:h-full md:w-20 md:flex-col md:py-8 md:gap-8 md:justify-start">
+        <div className="hidden md:block p-3 bg-indigo-600 rounded-xl shadow-lg mt-0 md:mt-0"><Brain className="w-8 h-8 text-white" /></div>
+        <button onClick={() => setView('app')} className={`p-3 rounded-xl transition-all ${view === 'app' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-white'}`}>
+          <LayoutDashboard className="w-6 h-6 md:w-6 md:h-6" />
+        </button>
+        {isLocal && (
+          <button onClick={() => setView('monitoring')} className={`p-3 rounded-xl transition-all ${view === 'monitoring' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-500 hover:text-white'}`}>
+            <Activity className="w-6 h-6 md:w-6 md:h-6" />
+          </button>
+        )}
       </nav>
 
-      <main className="pl-20 p-8 h-screen flex flex-col overflow-hidden">
-        <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col space-y-6 min-h-0">
+      {/* Main Content Area */}
+      <main className="flex-1 p-4 pb-20 md:pl-28 md:p-8 flex flex-col min-h-screen">
+        <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col space-y-6">
 
           {view === 'app' ? (
-            <div className="flex flex-col gap-6 h-full min-h-0">
-              <header className="flex flex-col bg-white p-6 rounded-2xl shadow-sm border border-slate-200 gap-6 shrink-0 relative z-50">
-                <div className="flex justify-between items-center">
+            <div className="flex flex-col gap-6">
+              <header className="flex flex-col bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 gap-6 shrink-0 relative z-50">
+                <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
                   <div>
-                    <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight leading-none">Legacy Modernization Pipeline</h1>
-                    <span className="text-[11px] font-bold text-slate-500 mt-2 uppercase tracking-widest flex items-center gap-2">
-                      <Zap className="w-3 h-3 text-orange-400" /> PostgreSQL ➜ Kafka ➜ AI Enrichment ➜ Vector Core
+                    <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight leading-none">Modernization Pipeline</h1>
+                    <span className="text-[10px] md:text-[11px] font-bold text-slate-500 mt-2 uppercase tracking-tight md:tracking-widest flex items-center flex-wrap gap-2">
+                      <Zap className="w-3 h-3 text-orange-400" /> PostgreSQL ➜ Kafka ➜ AI ➜ Vector
                     </span>
                   </div>
 
-                  {/* METRICS WITH TOOLTIPS RESTORED */}
-                  <div className="flex items-center gap-6 px-6 py-3 bg-slate-900 rounded-2xl shadow-xl">
-                    <div className="flex flex-col relative group cursor-help">
-                      <span className="text-[8px] font-black text-indigo-400 uppercase flex items-center gap-1">CDC Latency <HelpCircle className="w-2 h-2" /></span>
+                  {/* METRICS WITH TOOLTIPS */}
+                  <div className="flex items-center justify-between md:justify-start gap-3 md:gap-6 px-4 md:px-6 py-3 bg-slate-900 rounded-2xl shadow-xl overflow-x-auto no-scrollbar">
+                    <div className="flex flex-col relative group cursor-help min-w-fit">
+                      <span className="text-[8px] font-black text-indigo-400 uppercase flex items-center gap-1">Latency <HelpCircle className="w-2 h-2" /></span>
                       <span className="text-sm font-black text-white">{metrics.latency}</span>
                       <div className="absolute top-full mt-2 left-0 w-48 p-2 bg-slate-800 text-[9px] text-slate-300 rounded-lg opacity-0 group-hover:opacity-100 transition-all z-[110] border border-slate-700 pointer-events-none shadow-2xl">
                         Calculated as Δt between Postgres WAL commit and Vector DB ingestion acknowledgement.
                       </div>
                     </div>
-                    <div className="w-px h-6 bg-slate-700" />
-                    <div className="flex flex-col relative group cursor-help">
-                      <span className="text-[8px] font-black text-indigo-400 uppercase flex items-center gap-1">Enrichment Cost <HelpCircle className="w-2 h-2" /></span>
+                    <div className="w-px h-6 bg-slate-700 shrink-0" />
+                    <div className="flex flex-col relative group cursor-help min-w-fit">
+                      <span className="text-[8px] font-black text-indigo-400 uppercase flex items-center gap-1">Cost <HelpCircle className="w-2 h-2" /></span>
                       <span className="text-sm font-black text-white">{metrics.cost}</span>
                       <div className="absolute top-full mt-2 left-0 w-48 p-2 bg-slate-800 text-[9px] text-slate-300 rounded-lg opacity-0 group-hover:opacity-100 transition-all z-[110] border border-slate-700 pointer-events-none shadow-2xl">
                         Based on avg tokens/claim (Input: ~150, Output: ~400) x current model {provider.toUpperCase()} pricing.
                       </div>
-
                     </div>
-                    <div className="w-px h-6 bg-slate-700" />
-                    <div className="flex flex-col">
-                      <span className="text-[8px] font-black text-indigo-400 uppercase">Modernized Total</span>
+                    <div className="w-px h-6 bg-slate-700 shrink-0" />
+                    <div className="flex flex-col min-w-fit">
+                      <span className="text-[8px] font-black text-indigo-400 uppercase">Total</span>
                       <span className="text-sm font-black text-white">{claims.length}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+                <div className="flex items-center justify-between bg-slate-50/50 p-2 md:p-4 rounded-xl border border-slate-100 overflow-x-auto gap-2 no-scrollbar">
                   {STAGES.map((stage, idx) => (
-                    <div key={stage.id} className="flex-1 flex items-center">
+                    <div key={stage.id} className="flex-1 flex items-center min-w-[80px]">
                       <div className="flex flex-col items-center gap-2 flex-1">
-                        <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all ${pipelineStep > idx ? 'border-indigo-600 bg-indigo-600 text-white shadow-lg' : 'border-slate-200 bg-white text-slate-300'}`}>
-                          {pipelineStep > idx + 1 ? <CheckCircle2 className="w-6 h-6" /> : stage.icon}
+                        <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full border-2 flex items-center justify-center transition-all ${pipelineStep > idx ? 'border-indigo-600 bg-indigo-600 text-white shadow-lg' : 'border-slate-200 bg-white text-slate-300'}`}>
+                          {pipelineStep > idx + 1 ? <CheckCircle2 className="w-4 h-4 md:w-6 md:h-6" /> : stage.icon}
                         </div>
-                        <span className={`text-[9px] font-black uppercase ${pipelineStep === idx + 1 ? 'text-indigo-600' : 'text-slate-400'}`}>{stage.label}</span>
+                        <span className={`text-[8px] md:text-[9px] font-black uppercase text-center ${pipelineStep === idx + 1 ? 'text-indigo-600' : 'text-slate-400'}`}>{stage.label}</span>
                       </div>
-                      {idx < STAGES.length - 1 && <ArrowRight className="w-4 h-4 text-slate-200" />}
+                      {idx < STAGES.length - 1 && <ArrowRight className="w-3 h-3 text-slate-200 shrink-0 mx-1" />}
                     </div>
                   ))}
                 </div>
               </header>
 
-              <div className="grid grid-cols-12 gap-6 flex-1 min-h-0">
-                <div className="col-span-4 flex flex-col gap-6 overflow-hidden">
-                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm shrink-0">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pb-4">
+                <div className="md:col-span-4 flex flex-col gap-6">
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                     <div className="flex justify-between items-center mb-3">
                       <h2 className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2"><Sliders className="w-3 h-3" /> Engine Config</h2>
                       <span className="text-[10px] font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">Temp: {temperature}</span>
@@ -218,7 +225,7 @@ function App() {
                     <input type="range" min="0" max="1" step="0.1" value={temperature} onChange={(e) => handleTemperatureChange(e.target.value)} className="w-full h-1.5 accent-indigo-600 bg-slate-200 rounded-lg appearance-none cursor-pointer" />
                   </div>
 
-                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col shrink-0">
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
                     <h2 className="text-[10px] font-black uppercase text-slate-400 mb-2">Ingestion Source (PostgreSQL)</h2>
                     {showWarning && (
                       <div className="mb-3 p-3 bg-amber-50 border border-amber-100 rounded-xl flex gap-3 relative animate-in slide-in-from-top-2">
@@ -230,22 +237,24 @@ function App() {
                         <button onClick={() => setShowWarning(false)} className="absolute top-2 right-2 p-1 text-amber-400 hover:text-amber-900"><X className="w-3 h-3" /></button>
                       </div>
                     )}
-                    <textarea value={newClaim} onChange={(e) => setNewClaim(e.target.value)} className="w-full p-3 bg-slate-50 rounded-xl min-h-[80px] mb-3 text-sm border border-slate-100 outline-none focus:ring-2 ring-indigo-500/20 transition-all" placeholder="Enter raw claim data..." />
-                    <button onClick={handleCreateClaim} disabled={creating || !newClaim} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold flex justify-center items-center gap-2 hover:bg-indigo-600 transition-all">
-                      {creating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Submit Claim & Start CDC Pipeline
+                    <textarea value={newClaim} onChange={(e) => setNewClaim(e.target.value)} className="w-full p-3 bg-slate-50 rounded-xl min-h-[100px] mb-3 text-sm border border-slate-100 outline-none focus:ring-2 ring-indigo-500/20 transition-all" placeholder="Enter raw claim data..." />
+                    <button onClick={handleCreateClaim} disabled={creating || !newClaim} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold flex justify-center items-center gap-2 hover:bg-indigo-600 transition-all text-sm px-4">
+                      {creating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Submit CDC Pipeline
                     </button>
                   </div>
 
-                  <div className="flex-1 bg-slate-900 rounded-2xl p-4 font-mono text-[10px] overflow-y-auto text-slate-300 shadow-inner min-h-0">
-                    <div className="border-b border-slate-800 pb-2 mb-3 text-slate-500 flex items-center gap-2"><Terminal className="w-3 h-3 text-green-500" /> CLUSTER_TELEMETRY</div>
-                    <div className="space-y-1">{logs.map(l => (<div key={l.id}><span className="opacity-30">[{l.time}]</span> <span className={l.type === 'kafka' ? 'text-orange-400' : l.type === 'ai' ? 'text-indigo-400' : ''}>{l.msg}</span></div>))}</div>
+                  <div className="bg-slate-900 rounded-2xl p-4 font-mono text-[10px] text-slate-300 shadow-inner max-h-[300px] overflow-y-auto">
+                    <div className="w-full">
+                      <div className="border-b border-slate-800 pb-2 mb-3 text-slate-500 flex items-center gap-2 sticky top-0 bg-slate-900"><Terminal className="w-3 h-3 text-green-500" /> CLUSTER_TELEMETRY</div>
+                      <div className="space-y-1">{logs.map(l => (<div key={l.id}><span className="opacity-30">[{l.time}]</span> <span className={l.type === 'kafka' ? 'text-orange-400' : l.type === 'ai' ? 'text-indigo-400' : ''}>{l.msg}</span></div>))}</div>
+                    </div>
                   </div>
                 </div>
 
-                <div className="col-span-8 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col relative overflow-hidden">
-                  <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col gap-4 z-40 relative">
+                <div className="md:col-span-8 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col relative overflow-hidden min-h-[400px]">
+                  <div className="p-4 md:p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col gap-4 z-40 relative">
                     <div className="flex justify-between items-center">
-                      <h2 className="font-bold text-slate-700 uppercase text-xs tracking-widest flex items-center gap-2"><Sparkles className="w-4 h-4 text-indigo-500" /> Enriched Claims Intelligence</h2>
+                      <h2 className="font-bold text-slate-700 uppercase text-[10px] md:text-xs tracking-widest flex items-center gap-2"><Sparkles className="w-4 h-4 text-indigo-500" /> Intelligence Layer</h2>
                       <button onClick={() => fetchClaims()} className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-[10px] font-black text-slate-600 hover:bg-slate-50 transition-all">REFRESH</button>
                     </div>
                     <div className="relative">
@@ -254,31 +263,31 @@ function App() {
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-0 overflow-x-visible">
+                  <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 min-h-0 overflow-x-visible">
                     {filteredClaims.map((c, idx) => (
-                      <div key={c.id} className="p-5 bg-white border border-slate-100 rounded-2xl border-l-4 border-l-indigo-500 shadow-sm relative group/claim">
-                        <div className="flex justify-between items-start mb-3">
-                          <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">#CLAIM_ID_{c.id}</span>
-                          <div className="flex gap-2 relative">
+                      <div key={c.id} className="p-4 md:p-5 bg-white border border-slate-100 rounded-2xl border-l-4 border-l-indigo-500 shadow-sm relative group/claim">
+                        <div className="flex justify-between items-start mb-3 gap-2 flex-wrap">
+                          <span className="text-[9px] md:text-[10px] font-mono font-bold text-slate-400 uppercase">#CLAIM_ID_{c.id}</span>
+                          <div className="flex gap-2 relative flex-wrap justify-end">
                             {isLocal && (
                               <button onClick={() => openTrace(c.traceId)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[8px] font-black border border-slate-200 hover:bg-indigo-600 hover:text-white transition-all">
                                 <Link2 className="w-2.5 h-2.5" /> TRACE
                               </button>
                             )}
                             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[8px] font-black border border-amber-100 group/tip cursor-help relative">
-                              <Lock className="w-2.5 h-2.5" /> PII BYPASSED <HelpCircle className="w-2 h-2" />
-                              <div className={`absolute right-0 w-64 p-3 bg-slate-900 text-slate-200 rounded-xl shadow-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none font-normal z-[200] border border-slate-700
+                              <Lock className="w-2.5 h-2.5" /> BYPASSED
+                              <div className={`absolute right-0 w-48 md:w-64 p-3 bg-slate-900 text-slate-200 rounded-xl shadow-2xl opacity-0 group-hover/tip:opacity-100 transition-all pointer-events-none font-normal z-[200] border border-slate-700
                                 ${idx === 0 ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
                                 <span className="font-bold text-amber-400 uppercase block mb-1">Status: Governance Dormant</span>
-                                <p className="text-[10px] text-slate-400 leading-relaxed">Identity masking is currently bypassed. Personal information in this record has not been modified by the security gatekeeper.</p>
+                                <p className="text-[10px] text-slate-400 leading-relaxed">Identity masking is currently bypassed. Personal information in this record has not been modified.</p>
                                 <div className={`absolute right-4 w-3 h-3 bg-slate-900 border-slate-700 rotate-45 ${idx === 0 ? '-top-1.5 border-l border-t' : '-bottom-1.5 border-r border-b'}`}></div>
                               </div>
                             </div>
-                            <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 text-indigo-600 text-[8px] font-black border border-indigo-100"><ShieldCheck className="w-2.5 h-2.5" /> VECTOR_SYNC</div>
+                            <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 text-indigo-600 text-[8px] font-black border border-indigo-100"><ShieldCheck className="w-2.5 h-2.5" /> SYNC</div>
                           </div>
                         </div>
-                        <p className="text-slate-500 text-xs mb-3 italic">"{c.description}"</p>
-                        {c.summary && <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 animate-in fade-in duration-300">{c.summary}</div>}
+                        <p className="text-slate-500 text-[11px] md:text-xs mb-3 italic">"{c.description}"</p>
+                        {c.summary && <div className="bg-slate-50 p-3 md:p-4 rounded-xl border border-slate-200 text-xs md:text-sm font-semibold text-slate-800 animate-in fade-in duration-300">{c.summary}</div>}
                       </div>
                     ))}
                   </div>
@@ -287,21 +296,20 @@ function App() {
             </div>
           ) : (
             <div className="flex flex-col gap-4 h-full animate-in fade-in duration-500 min-h-0">
-              <div className="bg-slate-900 p-4 rounded-2xl flex items-center justify-between shrink-0 shadow-xl border border-slate-800">
-                <div className="flex gap-2">
-                  <button onClick={() => setMonitorTool('grafana')} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${monitorTool === 'grafana' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                    <BarChart3 className="w-4 h-4" /> GRAFANA METRICS
+              <div className="bg-slate-900 p-4 rounded-2xl flex flex-col md:flex-row items-center justify-between shrink-0 shadow-xl border border-slate-800 gap-4">
+                <div className="flex gap-2 w-full md:w-auto">
+                  <button onClick={() => setMonitorTool('grafana')} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-[10px] md:text-xs font-bold transition-all ${monitorTool === 'grafana' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-slate-800 text-slate-400'}`}>
+                    <BarChart3 className="w-4 h-4" /> METRICS
                   </button>
-                  <button onClick={() => setMonitorTool('jaeger')} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${monitorTool === 'jaeger' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                    <Activity className="w-4 h-4" /> JAEGER TRACES
+                  <button onClick={() => setMonitorTool('jaeger')} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-[10px] md:text-xs font-bold transition-all ${monitorTool === 'jaeger' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-slate-800 text-slate-400'}`}>
+                    <Activity className="w-4 h-4" /> TRACES
                   </button>
                 </div>
-                <div className="flex gap-3">
-                  <div className="flex items-center gap-4 mr-4 text-[10px] font-mono text-slate-500">
+                <div className="flex gap-3 w-full md:w-auto justify-between md:justify-end">
+                  <div className="hidden lg:flex items-center gap-4 mr-4 text-[10px] font-mono text-slate-500">
                     <span className="flex items-center gap-1"><Box className="w-3 h-3" /> NODE_01: ACTIVE</span>
-                    {monitorTool === 'grafana' && <span className="text-amber-500 animate-pulse uppercase text-[8px]">Linked to: {grafanaPath.split('/').pop()}</span>}
                   </div>
-                  <a href={monitorTool === 'grafana' ? `${PUBLIC_GRAFANA_URL}${grafanaPath}` : PUBLIC_JAEGER_URL} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 transition-all">
+                  <a href={monitorTool === 'grafana' ? `${PUBLIC_GRAFANA_URL}${grafanaPath}` : PUBLIC_JAEGER_URL} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] md:text-xs font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 transition-all">
                     <ExternalLink className="w-4 h-4" /> OPEN EXTERNAL
                   </a>
                 </div>
@@ -310,9 +318,7 @@ function App() {
                 <iframe
                   key={monitorTool}
                   src={monitorTool === 'grafana'
-                    // Default to a shorter window so new users immediately see data.
                     ? `${PUBLIC_GRAFANA_URL}${grafanaPath}?refresh=10s&theme=light&kiosk&from=now-1h&to=now`
-                    // Service name in Jaeger is "phoenix-service" (see /api/services).
                     : `${PUBLIC_JAEGER_URL}/search?service=phoenix-service`
                   }
                   className="w-full h-full border-none rounded-2xl"

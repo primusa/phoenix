@@ -430,6 +430,10 @@ Resources:
                     MANAGEMENT_OPENTELEMETRY_METRICS_EXPORT_ENABLED: "${OTelEnabled}"
                     MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "${OTelEnabled}"
                     MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED: "${OTelEnabled}"
+                    MANAGEMENT_OTLP_METRICS_EXPORT_URL: "http://${OTelEndpoint}:4318/v1/metrics"
+                    MANAGEMENT_OTLP_TRACING_ENDPOINT: "http://${OTelEndpoint}:4318/v1/traces"
+                    MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: "http://${OTelEndpoint}:4318/v1/traces"
+                    MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: "http://${OTelEndpoint}:4318/v1/logs"
                     MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "${OTelSampleRate}"
                   logging:
                     driver: awslogs
@@ -452,6 +456,12 @@ Resources:
                       awslogs-region: ${AWS::Region}
                       awslogs-group: ${PhoenixLogGroup}
                       awslogs-stream: ollama
+              EOF
+
+              PROFILES="aws"
+              if [ "${EnvironmentMode}" == "production" ]; then
+                PROFILES="aws,observability"
+                cat >> docker-compose-override.yml <<EOF
                 otel-collector:
                   volumes:
                     - ./otel-collector-config-aws.yaml:/etc/otel-collector-config.yaml
@@ -462,11 +472,8 @@ Resources:
                       awslogs-group: ${PhoenixLogGroup}
                       awslogs-stream: otel
               EOF
-
-              PROFILES="aws"
-              if [ "${EnvironmentMode}" == "production" ]; then
-                PROFILES="aws,observability"
               fi
+
               /usr/bin/docker-compose -f docker-compose.yml -f docker-compose-override.yml --profile $PROFILES up -d --no-build
               chown -R ec2-user:ec2-user /opt/phoenix
               chown -R ec2-user:ec2-user /opt/phoenix
@@ -514,6 +521,7 @@ Resources:
               sleep 10
               /usr/bin/docker-compose ps
             - OTelEnabled: !If [IsProd, "true", "false"]
+              OTelEndpoint: !If [IsProd, "otel-collector", "127.0.0.1"]
               OTelSampleRate: !If [IsProd, "1.0", "0.0"]
 
   ########################
