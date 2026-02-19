@@ -13,11 +13,11 @@ Phoenix is a next-generation intelligence engine designed to revolutionize the i
 The legacy insurance monolith was a **"black box."** Data was trapped in an aging on-premise PostgreSQL database, and manual claim reviews took an average of **4 days**. Adjusters were overwhelmed with raw text, leading to missed fraud indicators and delayed payouts.
 
 ### ✨ The Solution
-Phoenix is an **AI-Native Sidecar** implementation using the **Strangler Fig pattern**. We transparently tap into the legacy database via CDC without touching a single line of legacy code, providing real-time semantic overlays and automated risk scoring.
+Phoenix is an **AI-Native Sidecar** implementation using the **Strangler Fig pattern**. It provides real-time semantic search and automated summaries by transparently tapping into the legacy database via CDC—without touching a single line of legacy code, providing real-time semantic overlays and automated risk scoring.
 
 ### 📈 Estimated Business Impact
 *   **70% Reduction** in manual review time (from 4 days to ~30 seconds).
-*   **99.9% Data Visibility** across all claim cycles without system downtime.
+*   **99.9% Data Visibility** across all claim cycles without a system downtime.
 *   **Modernized Compliance**: Automated PII masking for HIPAA/GDPR readiness.
 
 ---
@@ -56,9 +56,9 @@ graph TD
         subgraph "AI Modernization Pipeline"
             SB -->|1. Sanitize| GS[Governance Service]
             GS -->|2. Fast Summary| SUM[AI Summary]
-            SUM -->|3. Semantic Search| VDB[(PGVector / RDS)]
-            VDB -->|4. Context| LLM[Gemini / Ollama]
-            LLM -->|5. Fraud Detection RAG| IA[Intelligence Assessment]
+            GS -->|3. Semantic Search| VDB[(PGVector / RDS)]
+            GS -->|4. AI Reasoning| IA[Intelligence Assessment]
+            VDB -->|Context| IA
         end
     end
 
@@ -70,9 +70,11 @@ graph TD
     style DBZ fill:#ffff99,stroke:#333
     style SB fill:#99ff99,stroke:#333
     style VDB fill:#9999ff,stroke:#333
-    style LLM fill:#ffcc99,stroke:#333
     style SUM fill:#99f0ff,stroke:#333
     style IA fill:#ffdd99,stroke:#333
+    style K fill:#ffcc66,stroke:#333
+    style GS fill:#66ccff,stroke:#333
+    style UI fill:#cc99ff,stroke:#333
 ```
 
 ---
