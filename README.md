@@ -42,24 +42,26 @@ Phoenix is built for production reliability. It features native **OpenTelemetry 
 
 ```mermaid
 graph TD
-    subgraph "Legacy Infrastructure (Red)"
+    subgraph "Legacy Infrastructure"
         LDB[(PostgreSQL)] -->|WAL Streaming| DBZ[Debezium CDC]
     end
 
-    subgraph "Bridge Protocol (Yellow)"
+    subgraph "Bridge Protocol"
         DBZ -->|Events| K[Apache Kafka]
     end
 
-    subgraph "Phoenix Engine (Green)"
+    subgraph "Phoenix Engine"
         K -->|Consumer| SB[Spring Boot Service]
         
         subgraph "AI Modernization Pipeline"
             SB -->|1. Sanitize| GS[Governance Service]
             GS -->|2. Search| VDB[(PGVector / RDS)]
             VDB -->|3. Context| LLM[Gemini / Ollama]
+            LLM -->|4. Fraud Detection RAG| IA[Intelligence Assessment]
         end
     end
 
+    IA -->|Score & Rationale| SB
     SB -->|Webhooks/API| UI[React Dashboard]
     
     style LDB fill:#ff9999,stroke:#333
@@ -67,6 +69,7 @@ graph TD
     style SB fill:#99ff99,stroke:#333
     style VDB fill:#9999ff,stroke:#333
     style LLM fill:#ffcc99,stroke:#333
+    style IA fill:#ffdd99,stroke:#333
 ```
 
 ---
@@ -92,6 +95,14 @@ fetchedClaims = vectorStoreManager.getStore(claimProvider)
                 .topK(3)
                 .build());
 ```
+
+### 🧠 The Intelligence Assessment: How it Works
+The "Intelligence Assessment" is the transition from simple data processing to actual semantic reasoning. This 4-step orchestration happens in milliseconds:
+
+1.  **Contextual Retrieval**: The system performs a similarity search in `PGVector`, identifying the top 3 historical claims most relevant to the current event.
+2.  **Prompt Orchestration**: A dense context packet is built, combining the sanitized current claim with its historical "shadows" (similar past events).
+3.  **Reasoning Engine**: The LLM acts as a **Digital Adjuster**, analyzing timing inconsistencies, overlapping claimant details, and pattern anomalies.
+4.  **Structured Synthesis**: The AI generates a machine-readable score (0-100), a concise analysis, and a technical rationale, which is then parsed and projected to the React dashboard.
 
 ---
 
