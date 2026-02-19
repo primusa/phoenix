@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS vector;
+
 CREATE TABLE IF NOT EXISTS claims (
                                       id SERIAL PRIMARY KEY,
                                       description TEXT,

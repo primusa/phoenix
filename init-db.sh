@@ -24,10 +24,12 @@ END
 \$\$;
 "
 
+
 # 2. Create Table and Set Publication identity
 # A check for the Publication as well, for Debezium
 echo "Creating table 'claims'..."
 docker-compose exec -T "$SERVICE_NAME" psql -U "$DB_USER" -d "$DB_NAME" -c "
+CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS claims (
     id SERIAL PRIMARY KEY,
     description TEXT,

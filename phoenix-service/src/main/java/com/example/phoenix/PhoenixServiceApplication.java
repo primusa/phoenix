@@ -8,8 +8,8 @@ import org.springframework.kafka.annotation.EnableKafka;
 
 @EnableKafka
 @SpringBootApplication(exclude = {
-		// This stops Spring from trying to auto-wire its own default Weaviate store
-		// org.springframework.ai.autoconfigure.vectorstore.weaviate.WeaviateVectorStoreAutoConfiguration.class
+		org.springframework.ai.vectorstore.weaviate.autoconfigure.WeaviateVectorStoreAutoConfiguration.class,
+		org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAutoConfiguration.class
 })
 public class PhoenixServiceApplication {
 
@@ -18,7 +18,8 @@ public class PhoenixServiceApplication {
 	public static void main(String[] args) {
 		log.info("Starting PhoenixService application");
 		var ctx = SpringApplication.run(PhoenixServiceApplication.class, args);
-		log.info("PhoenixService started with profiles: {}", String.join(",", ctx.getEnvironment().getActiveProfiles()));
+		log.info("PhoenixService started with profiles: {}",
+				String.join(",", ctx.getEnvironment().getActiveProfiles()));
 	}
 
 }

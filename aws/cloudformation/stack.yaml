@@ -416,6 +416,11 @@ Resources:
               export DB_PASS="postgres"
               export DB_NAME="insurance_corp"
               
+              export VECTOR_STORE_MODE="weaviate"
+              if [ "${EnvironmentMode}" == "development" ]; then
+                export VECTOR_STORE_MODE="pgvector"
+              fi
+
               cat > docker-compose-override.yml <<EOF
               services:
                 phoenix-backend:
@@ -424,6 +429,7 @@ Resources:
                     SPRING_DATASOURCE_URL: jdbc:postgresql://${!DB_HOST}:${!DB_PORT}/${!DB_NAME}
                     SPRING_DATASOURCE_USERNAME: ${!DB_USER}
                     SPRING_DATASOURCE_PASSWORD: ${!DB_PASS}
+                    PHOENIX_VECTOR_STORE_MODE: ${!VECTOR_STORE_MODE}
                     MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_ENABLED: "${OTelEnabled}"
                     MANAGEMENT_OPENTELEMETRY_INSTRUMENTATION_LOGBACK_APPENDER_ENABLED: "${OTelEnabled}"
                     MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_ENABLED: "${OTelEnabled}"
@@ -432,6 +438,9 @@ Resources:
                     MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED: "${OTelEnabled}"
                     MANAGEMENT_TRACING_ENABLED: "${OTelEnabled}"
                     MANAGEMENT_METRICS_EXPORT_OTLP_ENABLED: "${OTelEnabled}"
+                    MANAGEMENT_OTLP_LOGGING_EXPORT_ENABLED: "${OTelEnabled}"
+                    MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "${OTelEnabled}"
+                    MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED: "${OTelEnabled}"
                     OTEL_SDK_DISABLED: "${OTelDisabled}"
                     OTEL_TRACES_EXPORTER: "${OTelExporter}"
                     OTEL_METRICS_EXPORTER: "${OTelExporter}"

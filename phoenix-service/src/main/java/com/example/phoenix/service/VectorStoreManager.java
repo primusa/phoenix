@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.vectorstore.weaviate.WeaviateVectorStore;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
@@ -15,19 +15,19 @@ public class VectorStoreManager {
 
     private static final Logger log = LoggerFactory.getLogger(VectorStoreManager.class);
 
-    public record ActiveStore(AiProvider provider, Double temperature, WeaviateVectorStore store) {
+    public record ActiveStore(AiProvider provider, Double temperature, VectorStore store) {
     }
 
     private final AtomicReference<ActiveStore> currentActiveStore = new AtomicReference<>();
 
-    private final WeaviateVectorStore ollamaStore;
-    private final WeaviateVectorStore geminiStore;
-    private final WeaviateVectorStore openaiStore;
+    private final VectorStore ollamaStore;
+    private final VectorStore geminiStore;
+    private final VectorStore openaiStore;
 
     public VectorStoreManager(
-            @Qualifier("ollamaVectorStore") WeaviateVectorStore ollamaStore,
-            @Qualifier("geminiVectorStore") WeaviateVectorStore geminiStore,
-            @Qualifier("openaiVectorStore") WeaviateVectorStore openaiStore) {
+            @Qualifier("ollamaVectorStore") VectorStore ollamaStore,
+            @Qualifier("geminiVectorStore") VectorStore geminiStore,
+            @Qualifier("openaiVectorStore") VectorStore openaiStore) {
         this.ollamaStore = ollamaStore;
         this.geminiStore = geminiStore;
         this.openaiStore = openaiStore;
@@ -50,7 +50,7 @@ public class VectorStoreManager {
                     return current;
                 }
 
-                WeaviateVectorStore nextStore = lookupStore(nextProvider);
+                VectorStore nextStore = lookupStore(nextProvider);
                 log.info("Successfully switched strategy to: {} and temperature to: {}", nextProvider, temperature);
                 return new ActiveStore(nextProvider, temperature, nextStore);
             } catch (IllegalArgumentException e) {
@@ -61,7 +61,7 @@ public class VectorStoreManager {
         });
     }
 
-    public WeaviateVectorStore lookupStore(AiProvider provider) {
+    public VectorStore lookupStore(AiProvider provider) {
         return switch (provider) {
             case OLLAMA -> ollamaStore;
             case GEMINI -> geminiStore;
@@ -69,7 +69,7 @@ public class VectorStoreManager {
         };
     }
 
-    public WeaviateVectorStore getStore(String providerName) {
+    public VectorStore getStore(String providerName) {
         try {
             AiProvider provider = AiProvider.valueOf(providerName.toUpperCase());
             return lookupStore(provider);

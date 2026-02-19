@@ -18,6 +18,8 @@ psql \
   -U "$DB_USER" \
   -d "$DB_NAME" <<'EOF'
 
+CREATE EXTENSION IF NOT EXISTS vector;
+
 CREATE TABLE IF NOT EXISTS claims (
     id SERIAL PRIMARY KEY,
     description TEXT,

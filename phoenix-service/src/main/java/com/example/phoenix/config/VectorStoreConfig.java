@@ -6,13 +6,19 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
 import org.springframework.ai.vectorstore.weaviate.WeaviateVectorStore;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import io.weaviate.client.Config;
 import io.weaviate.client.WeaviateClient;
 
 @Configuration
@@ -20,48 +26,99 @@ public class VectorStoreConfig {
 
     private static final Logger log = LoggerFactory.getLogger(VectorStoreConfig.class);
 
+    // --- Weaviate Client ---
+
+    @Bean
+    @ConditionalOnProperty(name = "phoenix.vector-store.mode", havingValue = "weaviate", matchIfMissing = true)
+    public WeaviateClient weaviateClient(@Value("${spring.ai.vectorstore.weaviate.host:localhost:8080}") String host) {
+        log.info("Creating manual WeaviateClient for host: {}", host);
+        Config config = new Config("http", host);
+        return new WeaviateClient(config);
+    }
+
+    // --- Weaviate Implementation ---
+
     @Bean
     @Qualifier("ollamaVectorStore")
-    public WeaviateVectorStore ollamaVectorStore(
+    @ConditionalOnProperty(name = "phoenix.vector-store.mode", havingValue = "weaviate", matchIfMissing = true)
+    public VectorStore ollamaWeaviateStore(
             WeaviateClient weaviateClient,
             @Qualifier("ollamaEmbeddingModel") EmbeddingModel embeddingModel) {
+        log.info("Configuring Ollama VectorStore with Weaviate");
+        return WeaviateVectorStore.builder(weaviateClient, embeddingModel).build();
+    }
 
-        return WeaviateVectorStore.builder(weaviateClient, embeddingModel)
+    @Bean
+    @Qualifier("geminiVectorStore")
+    @ConditionalOnProperty(name = "phoenix.vector-store.mode", havingValue = "weaviate", matchIfMissing = true)
+    public VectorStore geminiWeaviateStore(
+            WeaviateClient weaviateClient,
+            @Qualifier("textEmbedding") EmbeddingModel embeddingModel) {
+        log.info("Configuring Gemini VectorStore with Weaviate");
+        return WeaviateVectorStore.builder(weaviateClient, embeddingModel).build();
+    }
+
+    @Bean
+    @Qualifier("openaiVectorStore")
+    @ConditionalOnProperty(name = "phoenix.vector-store.mode", havingValue = "weaviate", matchIfMissing = true)
+    public VectorStore openaiWeaviateStore(
+            WeaviateClient weaviateClient,
+            @Qualifier("openAiEmbeddingModel") EmbeddingModel embeddingModel) {
+        log.info("Configuring OpenAI VectorStore with Weaviate");
+        return WeaviateVectorStore.builder(weaviateClient, embeddingModel).build();
+    }
+
+    // --- PGVector Implementation ---
+
+    @Bean
+    @Qualifier("ollamaVectorStore")
+    @ConditionalOnProperty(name = "phoenix.vector-store.mode", havingValue = "pgvector")
+    public VectorStore ollamaPgVectorStore(
+            JdbcTemplate jdbcTemplate,
+            @Qualifier("ollamaEmbeddingModel") EmbeddingModel embeddingModel) {
+        log.info("Configuring Ollama VectorStore with PGVector");
+        return PgVectorStore.builder(jdbcTemplate, embeddingModel)
+                .initializeSchema(true)
                 .build();
     }
 
     @Bean
     @Qualifier("geminiVectorStore")
-    public WeaviateVectorStore geminiVectorStore(
-            WeaviateClient weaviateClient,
+    @ConditionalOnProperty(name = "phoenix.vector-store.mode", havingValue = "pgvector")
+    public VectorStore geminiPgVectorStore(
+            JdbcTemplate jdbcTemplate,
             @Qualifier("textEmbedding") EmbeddingModel embeddingModel) {
-
-        return WeaviateVectorStore.builder(weaviateClient, embeddingModel)
+        log.info("Configuring Gemini VectorStore with PGVector");
+        return PgVectorStore.builder(jdbcTemplate, embeddingModel)
+                .initializeSchema(true)
                 .build();
     }
 
     @Bean
     @Qualifier("openaiVectorStore")
-    public WeaviateVectorStore openaiVectorStore(
-            WeaviateClient weaviateClient,
+    @ConditionalOnProperty(name = "phoenix.vector-store.mode", havingValue = "pgvector")
+    public VectorStore openaiPgVectorStore(
+            JdbcTemplate jdbcTemplate,
             @Qualifier("openAiEmbeddingModel") EmbeddingModel embeddingModel) {
-
-        return WeaviateVectorStore.builder(weaviateClient, embeddingModel)
+        log.info("Configuring OpenAI VectorStore with PGVector");
+        return PgVectorStore.builder(jdbcTemplate, embeddingModel)
+                .initializeSchema(true)
                 .build();
     }
 
     @Bean
+    @ConditionalOnProperty(name = "phoenix.vector-store.mode", havingValue = "weaviate", matchIfMissing = true)
     public CommandLineRunner initializeWeaviateSchema(
-            @Qualifier("ollamaVectorStore") WeaviateVectorStore ollamaStore,
-            @Qualifier("geminiVectorStore") WeaviateVectorStore geminiStore,
-            @Qualifier("openaiVectorStore") WeaviateVectorStore openaiStore) {
+            @Qualifier("ollamaVectorStore") VectorStore ollamaStore,
+            @Qualifier("geminiVectorStore") VectorStore geminiStore,
+            @Qualifier("openaiVectorStore") VectorStore openaiStore) {
         return args -> {
             log.info("Initializing Weaviate Schemas (Retry logic enabled)...");
-            List<WeaviateVectorStore> stores = List.of(ollamaStore, geminiStore, openaiStore);
+            List<VectorStore> stores = List.of(ollamaStore, geminiStore, openaiStore);
 
             for (int i = 0; i < 3; i++) {
                 try {
-                    for (WeaviateVectorStore store : stores) {
+                    for (VectorStore store : stores) {
                         if (store instanceof org.springframework.beans.factory.InitializingBean ib) {
                             ib.afterPropertiesSet();
                         }
