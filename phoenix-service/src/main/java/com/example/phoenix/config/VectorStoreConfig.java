@@ -76,8 +76,9 @@ public class VectorStoreConfig {
     public VectorStore ollamaPgVectorStore(
             JdbcTemplate jdbcTemplate,
             @Qualifier("ollamaEmbeddingModel") EmbeddingModel embeddingModel) {
-        log.info("Configuring Ollama VectorStore with PGVector");
+        log.info("Configuring Ollama VectorStore with PGVector (768 dim)");
         return PgVectorStore.builder(jdbcTemplate, embeddingModel)
+                .dimensions(768)
                 .initializeSchema(true)
                 .build();
     }
@@ -88,8 +89,9 @@ public class VectorStoreConfig {
     public VectorStore geminiPgVectorStore(
             JdbcTemplate jdbcTemplate,
             @Qualifier("textEmbedding") EmbeddingModel embeddingModel) {
-        log.info("Configuring Gemini VectorStore with PGVector");
+        log.info("Configuring Gemini VectorStore with PGVector (768 dim)");
         return PgVectorStore.builder(jdbcTemplate, embeddingModel)
+                .dimensions(768)
                 .initializeSchema(true)
                 .build();
     }
@@ -100,8 +102,9 @@ public class VectorStoreConfig {
     public VectorStore openaiPgVectorStore(
             JdbcTemplate jdbcTemplate,
             @Qualifier("openAiEmbeddingModel") EmbeddingModel embeddingModel) {
-        log.info("Configuring OpenAI VectorStore with PGVector");
+        log.info("Configuring OpenAI VectorStore with PGVector (1536 dim)");
         return PgVectorStore.builder(jdbcTemplate, embeddingModel)
+                .dimensions(1536)
                 .initializeSchema(true)
                 .build();
     }
