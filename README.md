@@ -42,7 +42,7 @@ Phoenix is built for production reliability. It features native **OpenTelemetry 
 
 ```mermaid
 graph TD
-    subgraph "Legacy Infrastructure"
+    subgraph "Legacy System"
         LDB[(PostgreSQL)] -->|WAL Streaming| DBZ[Debezium CDC]
     end
 
@@ -50,21 +50,21 @@ graph TD
         DBZ -->|Events| K[Apache Kafka]
     end
 
-    subgraph "Phoenix Engine"
+    subgraph "Phoenix Intelligence Engine"
         K -->|Consumer| SB[Spring Boot Service]
+        SB -->|1. Sanitize| GS[Governance Service]
         
         subgraph "AI Modernization Pipeline"
-            SB -->|1. Sanitize| GS[Governance Service]
+            direction TB
             GS -->|2. Fast Summary| SUM[AI Summary]
             GS -->|3. Semantic Search| VDB[(PGVector / RDS)]
-            GS -->|4. AI Reasoning| IA[Intelligence Assessment]
-            VDB -->|Context| IA
+            VDB -->|4. Historical Context| IA[Intelligence Assessment]
+            GS -->|5. Reasoning| IA
         end
     end
 
-    IA -->|Deep Insights| SB
-    SUM -->|Instant Brief| SB
-    SB -->|Webhooks/API| UI[React Dashboard]
+    SUM -->|Instant Brief| UI[React Dashboard]
+    IA -->|Deep Insights| UI
     
     style LDB fill:#ff9999,stroke:#333
     style DBZ fill:#ffff99,stroke:#333
