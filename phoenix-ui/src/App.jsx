@@ -220,9 +220,11 @@ function App() {
                       <span className="text-[10px] font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">Temp: {temperature}</span>
                     </div>
                     <div className="flex bg-slate-100 p-1 rounded-xl mb-4">
-                      {['openai', 'ollama', 'gemini'].map(p => (
-                        <button key={p} onClick={() => handleProviderChange(p)} className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all ${provider === p ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>{p.toUpperCase()}</button>
-                      ))}
+                      {['openai', 'ollama', 'gemini']
+                        .filter(p => isLocal || p === 'ollama')
+                        .map(p => (
+                          <button key={p} onClick={() => handleProviderChange(p)} className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all ${provider === p ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>{p.toUpperCase()}</button>
+                        ))}
                     </div>
                     <input type="range" min="0" max="1" step="0.1" value={temperature} onChange={(e) => handleTemperatureChange(e.target.value)} className="w-full h-1.5 accent-indigo-600 bg-slate-200 rounded-lg appearance-none cursor-pointer" />
                   </div>
