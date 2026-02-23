@@ -122,9 +122,17 @@ services:
     dns: [ 8.8.8.8 ]
     environment:
       - OLLAMA_KEEP_ALIVE=-1m
+      - OLLAMA_NUM_PARALLEL=1
+    # We create a custom model 'limited-llama' that enforces the 2048 context limit
     command: >
-      -c " ollama serve & SERVER_PID=$$!; until ollama status >/dev/null 2>&1; do sleep 1; done; ollama pull llama3.2:1b && ollama pull nomic-embed-text; wait $$SERVER_PID "
-    # ollama run llama3.2:1b 'ping' --keepalive -1m &&
+      sh -c "ollama serve & 
+      sleep 5;
+      ollama pull llama3.2:1b-instruct-q4_K_M;
+      ollama pull nomic-embed-text;
+      echo 'FROM llama3.2:1b-instruct-q4_K_M\nPARAMETER num_ctx 2048' > Modelfile;
+      ollama create limited-llama -f Modelfile;
+      wait"
+    # ollama run llama3.2:1b-instruct-q4_K_M 'ping' --keepalive -1m &&
     # ollama run nomic-embed-text 'ping' --keepalive -1m &&
     restart: unless-stopped
 
@@ -284,7 +292,7 @@ services:
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_DOTNET_AUTO_LOGS_INCLUDE_FORMATTED_MESSAGE: true
       OTEL_INSTRUMENTATION_COMMON_DEFAULT_ENABLED: true
-      SPRING_AI_OLLAMA_CHAT_MODEL: llama3.2:1b
+      SPRING_AI_OLLAMA_CHAT_MODEL: llama3.2:1b-instruct-q4_K_M
 
       # --- TRACING ---
       # Modern SB4 standard for tracing export

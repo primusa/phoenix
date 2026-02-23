@@ -120,7 +120,7 @@ The "Intelligence Assessment" is the transition from simple data processing to a
 
 ### 💰 Cost Control (FinOps)
 AI tokens are expensive. Phoenix optimizes spend by implementing a **Multi-Stage Processing pipeline**:
-1.  **Stage 1 (Fast Summary)**: Uses tiny, cost-effective models (e.g., `llama3.2:1b`) for immediate categorization.
+1.  **Stage 1 (Fast Summary)**: Uses tiny, cost-effective models (e.g., `llama3.2:1b-instruct-q4_K_M`) for immediate categorization.
 2.  **Stage 2 (Deep Analysis)**: Only triggers expensive RAG/Reasoning models (e.g., `gemini-1.5-pro`) for high-value or suspect claims.
 
 ### 🛡 Data Privacy (Governance Gate)
