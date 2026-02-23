@@ -25,7 +25,7 @@ const STAGES = [
   { id: 1, label: 'Postgres WAL', icon: <Database className="w-4 h-4" /> },
   { id: 2, label: 'Kafka Stream', icon: <Zap className="w-4 h-4" /> },
   { id: 3, label: 'AI Summary', icon: <Brain className="w-4 h-4" /> },
-  { id: 4, label: 'Fraud Detection RAG', icon: <ShieldCheck className="w-4 h-4" /> },
+  { id: 4, label: 'Agentic RAG Reasoning', icon: <ShieldCheck className="w-4 h-4" /> },
 ]
 
 function App() {
@@ -375,6 +375,12 @@ function App() {
                                 <h4 className="text-[8px] font-black uppercase text-slate-400 mb-1 flex items-center gap-1"><Sparkles className="w-2.5 h-2.5" /> Analysis Summary</h4>
                                 <p className="text-[11px] font-medium text-slate-700 leading-normal">{c.fraud_analysis}</p>
                               </div>
+                              {c.fraud_thought && (
+                                <div className="pt-2 border-t border-slate-100/50">
+                                  <h4 className="text-[8px] font-black uppercase text-indigo-400 mb-1 flex items-center gap-1"><Brain className="w-2.5 h-2.5" /> Agent Chain of Thought</h4>
+                                  <p className="text-[10px] text-indigo-900/70 leading-relaxed italic">{c.fraud_thought}</p>
+                                </div>
+                              )}
                               {c.fraud_rationale && (
                                 <div className="pt-2 border-t border-slate-100/50">
                                   <h4 className="text-[8px] font-black uppercase text-slate-400 mb-1 flex items-center gap-1"><Info className="w-2.5 h-2.5" /> Calculation Rationale</h4>
@@ -386,7 +392,7 @@ function App() {
                                   <div className="w-4 h-4 rounded-full bg-indigo-500 border border-white flex items-center justify-center text-[6px] text-white font-bold">V</div>
                                   <div className="w-4 h-4 rounded-full bg-slate-800 border border-white flex items-center justify-center text-[6px] text-white font-bold">R</div>
                                 </div>
-                                <span className="text-[8px] font-bold text-slate-400">RAG Context: Checked against historical vector corpus</span>
+                                <span className="text-[8px] font-bold text-slate-400">Agentic RAG: Autonomous tool usage & historical search</span>
                               </div>
                             </div>
                           </div>

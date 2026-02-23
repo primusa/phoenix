@@ -5,18 +5,17 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.ai.openai.OpenAiChatModel;
-import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vertexai.gemini.VertexAiGeminiChatModel;
 import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,6 +26,7 @@ import org.springframework.stereotype.Service;
 
 import com.example.phoenix.config.constant.AiProvider;
 import com.example.phoenix.model.FraudResult;
+import com.example.phoenix.tool.RiskAnalysisTools;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -45,17 +45,20 @@ public class ClaimModernizationService {
     private final VectorStoreManager vectorStoreManager;
     private final ObservationRegistry observationRegistry;
     private final GovernanceService governanceService;
+    private final RiskAnalysisTools riskAnalysisTools;
 
     public ClaimModernizationService(ApplicationContext applicationContext,
             VectorStoreManager vectorStoreManager,
             JdbcTemplate jdbcTemplate,
             ObservationRegistry observationRegistry,
-            GovernanceService governanceService) {
+            GovernanceService governanceService,
+            RiskAnalysisTools riskAnalysisTools) {
         this.applicationContext = applicationContext;
         this.vectorStoreManager = vectorStoreManager;
         this.jdbcTemplate = jdbcTemplate;
         this.observationRegistry = observationRegistry;
         this.governanceService = governanceService;
+        this.riskAnalysisTools = riskAnalysisTools;
     }
 
     public void setAiProvider(String provider, Double temperature) {
@@ -141,60 +144,53 @@ public class ClaimModernizationService {
                     // 1. STAGE 1: Fast Summarization
                     ChatClient chatClient = getChatClient(claimProvider);
                     String summary = chatClient.prompt()
-                            .user("Summarize this insurance claim in 1 sentence: " + sanitizedDescription)
+                            .user("Summarize this insurance claim for a technical adjuster in 1 sentence: "
+                                    + sanitizedDescription)
                             .options(OllamaChatOptions.builder().temperature(claimTemperature).build())
                             .call()
                             .content();
 
                     // Update DB with summary immediately
                     this.jdbcTemplate.update("UPDATE claims SET summary = ? WHERE id = ?", summary, claimId);
-                    log.info("Summary updated for claim ID: {}. Starting Fraud Analysis...", claimId);
+                    log.info("[Stage 1/2] AI Summary persisted for claim ID: {}. Dispatching to Agentic RAG layer...",
+                            claimId);
 
-                    // 2. STAGE 2: RAG Context + Fraud Analysis
-                    List<Document> fetchedClaims = List.of();
-                    try {
-                        fetchedClaims = vectorStoreManager.getStore(claimProvider)
-                                .similaritySearch(SearchRequest.builder().query(sanitizedDescription).topK(3).build());
-                    } catch (Exception e) {
-                        log.warn("Vector search skipped for claim {} (likely empty store or schema pending): {}",
-                                claimId, e.getMessage());
-                    }
+                    log.info("Starting Agentic Fraud Analysis for claim ID: {} using provider: {}", claimId,
+                            claimProvider);
 
-                    final List<Document> similarClaims = fetchedClaims;
-
-                    String historicalContext = similarClaims.isEmpty()
-                            ? "No prior overlapping claims found."
-                            : IntStream.range(0, similarClaims.size())
-                                    .mapToObj(i -> "Historical Claim " + (i + 1) + ": "
-                                            + similarClaims.get(i).getText())
-                                    .collect(Collectors.joining("\n"));
-
-                    FraudResult fraudResult = analyzeClaim(sanitizedDescription, historicalContext, chatClient);
+                    // 2. STAGE 2: Agentic RAG Analysis
+                    // The AI Agent decides autonomously if it needs historical context using its
+                    // tools.
+                    enrichmentObs.event(Observation.Event.of("agentic.rag.started"));
+                    FraudResult fraudResult = agenticAnalyzeClaim(sanitizedDescription, chatClient, claimProvider);
+                    enrichmentObs.event(Observation.Event.of("agentic.rag.complete"));
 
                     int fraudScore = fraudResult.getScore();
                     String fraudAnalysis = fraudResult.getAnalysis();
                     String fraudRationale = fraudResult.getRationale();
+                    String fraudThought = fraudResult.getThought();
 
-                    log.info("Final Parsed Insights for {}: Score={}, Analysis={}, Rationale={}",
-                            claimId, fraudScore, fraudAnalysis, fraudRationale);
+                    log.info("Final Parsed Insights for {}: Score={}, Analysis={}, Rationale={}, Thought={}",
+                            claimId, fraudScore, fraudAnalysis, fraudRationale, fraudThought);
 
                     // 3. Update DB with Fraud insights
                     this.jdbcTemplate.update(
-                            "UPDATE claims SET fraud_score = ?, fraud_analysis = ?, fraud_rationale = ? WHERE id = ?",
-                            fraudScore, fraudAnalysis, fraudRationale, claimId);
-                    log.info("Claim {} modernized with Fraud Score: {} and Rationale", claimId, fraudScore);
+                            "UPDATE claims SET fraud_score = ?, fraud_analysis = ?, fraud_rationale = ?, fraud_thought = ? WHERE id = ?",
+                            fraudScore, fraudAnalysis, fraudRationale, fraudThought, claimId);
+                    log.info("Claim {} modernized with Fraud Score: {}, Rationale, and Thought", claimId, fraudScore);
 
                     // 4. Vector Sync
                     try {
                         List<Document> docs = List.of(
                                 new Document(summary, Map.of("source", "legacy_db", "claim_id", claimId)));
                         this.vectorStoreManager.getStore(claimProvider).add(docs);
-                        enrichmentObs.event(Observation.Event.of("vector.store.sync"));
+                        enrichmentObs.event(Observation.Event.of("agentic.vector.sync.complete"));
                     } catch (Exception ve) {
                         log.error("Vector Store Error: {}", ve.getMessage());
                     }
 
-                    enrichmentObs.event(Observation.Event.of("pipeline.complete"));
+                    enrichmentObs.event(Observation.Event.of("agentic.pipeline.complete"));
+                    log.info("[Pipeline Done] Claim {} fully processed through Agentic RAG pipeline.", claimId);
 
                 } catch (Exception e) {
                     enrichmentObs.error(e);
@@ -204,215 +200,177 @@ public class ClaimModernizationService {
         });
     }
 
-    public FraudResult analyzeClaim(String claimText, String historicalText, ChatClient chatClient) {
+    /**
+     * Agentic RAG Assessment: The AI autonomously uses tools to gather
+     * intelligence.
+     */
+    public FraudResult agenticAnalyzeClaim(String claimText, ChatClient chatClient, String provider) {
+        log.info("Agentic Intelligence Engine: Deploying Fraud Analyst Agent...");
+
+        // In Spring AI 2.0.x, it's safer to register functions at the client level via
+        // builder
+        // We obtain the underlying ChatModel from the current client if possible, or
+        // use a new one
+
+        ChatClient agenticClient = chatClient.mutate()
+                .defaultTools(riskAnalysisTools)
+                .defaultAdvisors(new SimpleLoggerAdvisor()) // Logs the tool-calling handshake
+                .build();
 
         String systemPrompt = """
-                You are an insurance fraud detection engine.
+                You are a Senior Insurance Fraud Analyst Agent.
 
-                You MUST follow the output format exactly.
-                You are NOT allowed to add extra text.
-                You are NOT allowed to use markdown.
-                If you fail to follow the format exactly, the response is invalid.
+                MISSION:
+                1. First, REASON about the claim. Look for names, amounts, and specific incident types.
+                2. EVALUATE if 'historicalClaimSearch' is needed. (Hint: It is almost always needed for proper due diligence).
+                3. EXECUTE the tool call using provider: %s.
+                4. ANALYZE the results from the tool alongside the current claim.
+
+                OUTPUT FORMAT (STRICT):
+                THOUGHT: <your internal reasoning process regarding the tool usage>
+                SCORE: <0-100>
+                ANALYSIS: <concise summary of your investigation>
+                RATIONALE: <detailed logic, including specifically what the historical search revealed>
                 """;
 
-        String userPrompt = """
-                Analyze the insurance claim for fraud risk.
+        String userPrompt = "Task: Analyze this claim for potential fraud or anomalies: " + claimText;
 
-                Current Claim:
-                """ + claimText + """
-
-                Historical Context:
-                """ + historicalText + """
-
-                You must respond EXACTLY in this format:
-
-                SCORE: <integer between 0 and 100>
-                ANALYSIS: <one concise paragraph>
-                RATIONALE: <detailed explanation>
-
-                Rules:
-                - Start directly with SCORE:
-                - SCORE must be an integer only
-                - No text before SCORE
-                - No text after RATIONALE
-
-                Example:
-
-                SCORE: 78
-                ANALYSIS: The claim shows moderate fraud risk due to timing inconsistencies.
-                RATIONALE: The claimant delayed reporting by 45 days and previously filed two similar claims.
-
-                Now analyze the provided claim.
-                """;
-
-        String response = chatClient.prompt()
-                .system(systemPrompt)
+        // Execute Agentic Loop
+        String response = agenticClient.prompt()
+                .system(String.format(systemPrompt, provider))
                 .user(userPrompt)
-                .options(OllamaChatOptions.builder()
-                        // .model("tinyllama")
-                        .temperature(0.0)
-                        .repeatPenalty(1.1)
-                        .build())
                 .call()
                 .content();
 
-        return parseAndValidate(response, claimText, historicalText, chatClient, 1);
+        log.info("Agent Task Complete. Parsing intelligence report...");
+
+        // Agent handled context (historicalText) retrieval via tools.
+        return parseAndValidate(response, claimText, chatClient, 1);
     }
 
     private FraudResult parseAndValidate(String response,
             String claimText,
-            String historicalText,
             ChatClient chatClient,
             int attempt) {
 
-        log.info("Raw response: " + response);
+        log.info("Raw agentic response: " + response);
 
-        // 1. Try strict pattern first
-        Pattern strictPattern = Pattern.compile(
-                "SCORE:\\s*(\\d{1,3})\\s*ANALYSIS:\\s*(.*?)\\s*RATIONALE:\\s*(.*)",
-                Pattern.DOTALL);
+        // 1. Strict Pattern Matching
+        Pattern agenticPattern = Pattern.compile(
+                "(?:THOUGHT:\\s*(.*?)\\s*)?SCORE:\\s*(\\d{1,3})\\s*ANALYSIS:\\s*(.*?)\\s*RATIONALE:\\s*(.*)",
+                Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
 
-        Matcher strictMatcher = strictPattern.matcher(response);
+        Matcher matcher = agenticPattern.matcher(response);
 
-        if (strictMatcher.find()) {
+        if (matcher.find()) {
             try {
-                int score = Integer.parseInt(strictMatcher.group(1));
-                String analysis = strictMatcher.group(2).trim();
-                String rationale = strictMatcher.group(3).trim();
+                String thought = matcher.group(1) != null ? matcher.group(1).trim() : "No internal reasoning provided.";
+                int score = Integer.parseInt(matcher.group(2));
+                String analysis = matcher.group(3).trim();
+                String rationale = matcher.group(4).trim();
 
-                if (score < 0 || score > 100)
-                    throw new NumberFormatException();
-
-                return new FraudResult(score, analysis, rationale);
+                if (score >= 0 && score <= 100) {
+                    return new FraudResult(score, analysis, rationale, thought);
+                }
             } catch (Exception e) {
-                // fallback to flexible parsing below
-            }
-        }
-        // 1.2 Try strict pattern first
-        Pattern strictPattern2 = Pattern.compile(
-                "Scoring:\\s*(\\d{1,3})\\s*Analysis:\\s*(.*?)\\s*Rational analysis:\\s*(.*)",
-                Pattern.DOTALL);
-
-        Matcher strictMatcher2 = strictPattern2.matcher(response);
-
-        if (strictMatcher2.find()) {
-            try {
-                int score = Integer.parseInt(strictMatcher2.group(1));
-                String analysis = strictMatcher2.group(2).trim();
-                String rationale = strictMatcher2.group(3).trim();
-
-                if (score < 0 || score > 100)
-                    throw new NumberFormatException();
-
-                return new FraudResult(score, analysis, rationale);
-            } catch (Exception e) {
-                // fallback to flexible parsing below
+                log.warn("Strict parsing failed, falling back to flexible extraction.");
             }
         }
 
-        // 2. Flexible extraction for messy labels like "RAISONALE", "SCORING", etc.
+        // 2. Flexible Extraction
         Integer extractedScore = null;
-        String extractedRationale = "";
+        String extractedThought = "";
         String extractedAnalysis = "";
+        String extractedRationale = "";
 
-        // Extract score from any sentence containing "SCORE is <number>"
-        Pattern scorePattern = Pattern.compile("SCORE\\s*(is)?\\s*(\\d{1,3})", Pattern.CASE_INSENSITIVE);
-        Matcher scoreMatcher = scorePattern.matcher(response);
-        if (scoreMatcher.find()) {
-            extractedScore = Integer.parseInt(scoreMatcher.group(2));
-        }
+        // Extract Thought
+        Matcher thoughtMatcher = Pattern.compile("THOUGHT:\\s*(.*?)(?=SCORE:|ANALYSIS:|RATIONALE:|$)",
+                Pattern.DOTALL | Pattern.CASE_INSENSITIVE).matcher(response);
+        if (thoughtMatcher.find())
+            extractedThought = thoughtMatcher.group(1).trim();
 
-        // Extract rationale from any sentence containing "RATIONALE" or "RAISONALE"
-        Pattern rationalePattern = Pattern.compile("(RATIONALE|RAISONALE)[^:\\n]*:\\s*(.*?)((\\n\\d+\\.)|$)",
-                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-        Matcher rationaleMatcher = rationalePattern.matcher(response);
-        if (rationaleMatcher.find()) {
-            extractedRationale = rationaleMatcher.group(2).trim();
-        }
+        // Extract Score
+        Matcher scoreMatcher = Pattern.compile("SCORE\\s*[:\\-]?\\s*(\\d{1,3})", Pattern.CASE_INSENSITIVE)
+                .matcher(response);
+        if (scoreMatcher.find())
+            extractedScore = Integer.parseInt(scoreMatcher.group(1));
 
-        // If rationale exists, use it as analysis too (can be refined further)
-        if (!extractedRationale.isEmpty()) {
-            extractedAnalysis = extractedRationale.split("\\.")[0] + "."; // first sentence as summary
-        }
+        // Extract Analysis
+        Matcher analysisMatcher = Pattern.compile("ANALYSIS:\\s*(.*?)(?=RATIONALE:|SCORE:|THOUGHT:|$)",
+                Pattern.DOTALL | Pattern.CASE_INSENSITIVE).matcher(response);
+        if (analysisMatcher.find())
+            extractedAnalysis = analysisMatcher.group(1).trim();
 
-        // 3. Validation
+        // Extract Rationale
+        Matcher rationaleMatcher = Pattern.compile("RATIONALE:\\s*(.*)",
+                Pattern.DOTALL | Pattern.CASE_INSENSITIVE).matcher(response);
+        if (rationaleMatcher.find())
+            extractedRationale = rationaleMatcher.group(1).trim();
+
+        // 3. Validation and Fallbacks
         if (extractedScore != null && extractedScore >= 0 && extractedScore <= 100) {
-            return new FraudResult(extractedScore, extractedAnalysis, extractedRationale);
+            if (extractedAnalysis.isEmpty())
+                extractedAnalysis = "See rationale for summary.";
+            if (extractedThought.isEmpty())
+                extractedThought = "Agent skipped explicit reasoning.";
+
+            return new FraudResult(extractedScore, extractedAnalysis, extractedRationale, extractedThought);
         }
 
-        // 4. Retry if still fails
+        // 4. Retry
         if (attempt < 2) {
-            return retryWithCorrection(claimText, historicalText, response, chatClient, attempt + 1);
+            return retryWithCorrection(claimText, response, chatClient, attempt + 1);
         }
 
-        // 5. Fallback
-        return new FraudResult(0,
-                "AI Analysis unavailable",
-                "The model failed to follow format. Raw response: " + response);
+        return new FraudResult(0, "Error", "Failed to parse format.", "Analysis failed after retries.");
     }
 
     private FraudResult retryWithCorrection(
             String claimText,
-            String historicalText,
             String previousResponse,
             ChatClient chatClient,
             int attempt) {
 
+        // Directing the AI to look at its own mistake
         String systemPrompt = """
-                You are an insurance fraud detection engine.
+                You are a Senior Fraud Auditor. Your previous response was rejected because it did not follow the STRICT output headers.
 
-                You MUST follow the output format exactly.
-                You are NOT allowed to add extra text.
-                You are NOT allowed to use markdown.
-                If you fail to follow the format exactly, the response is invalid.
+                CORRECTION RULES:
+                - You MUST include the 'THOUGHT:' header first.
+                - You MUST follow with 'SCORE:', 'ANALYSIS:', and 'RATIONALE:'.
+                - Do not use markdown (no bold, no backticks).
+                - Do not include any introductory text like "Sure, here is the report".
                 """;
 
-        String correctionPrompt = """
-                Analyze the insurance claim for fraud risk.
+        String correctionPrompt = String.format("""
+                REASONING ERROR IN PREVIOUS TASK:
+                The previous output was:
+                ---
+                %s
+                ---
 
-                Current Claim:
-                """ + claimText + """
+                FIX THIS NOW.
+                Analyze this claim: %s
 
-                Historical Context:
-                """ + historicalText
-                + """
-
-                        You must respond EXACTLY in this format:
-
-                        SCORE: <integer between 0 and 100>
-                        ANALYSIS: <one concise paragraph>
-                        RATIONALE: <detailed explanation>
-
-                        STRICT RULES:
-                        - Start directly with SCORE:
-                        - SCORE must be an integer only
-                        - No text before SCORE
-                        - No text after RATIONALE
-                        - Do not repeat instructions
-                        - Do not use markdown
-                        - Do not add explanations outside the template
-
-                        Example:
-
-                        SCORE: 65
-                        ANALYSIS: The claim presents moderate fraud indicators due to prior similar filings.
-                        RATIONALE: The claimant filed two comparable damage claims within the past year and delayed reporting the current incident.
-
-                        Now analyze the provided claim.
-                        """;
+                Format your response exactly as:
+                THOUGHT: <your reasoning>
+                SCORE: <0-100>
+                ANALYSIS: <summary>
+                RATIONALE: <detail>
+                """, previousResponse, claimText);
 
         String retryResponse = chatClient.prompt()
                 .system(systemPrompt)
                 .user(correctionPrompt)
-                .options(OllamaChatOptions.builder()
-                        // .model("tinyllama")
+                .options(ChatOptions.builder() // Use the static builder on the interface
                         .temperature(0.0)
-                        .repeatPenalty(1.1)
                         .build())
                 .call()
                 .content();
 
-        return parseAndValidate(retryResponse, claimText, historicalText, chatClient, attempt);
+        // Passing an empty string for historicalText because in Agentic RAG,
+        // the agent is responsible for its own context retrieval via tools.
+        return parseAndValidate(retryResponse, claimText, chatClient, attempt);
     }
 
 }

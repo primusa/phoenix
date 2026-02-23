@@ -123,8 +123,8 @@ services:
     environment:
       - OLLAMA_KEEP_ALIVE=-1m
     command: >
-      -c " ollama serve & SERVER_PID=$$!; until ollama status >/dev/null 2>&1; do sleep 1; done; ollama pull tinyllama && ollama pull nomic-embed-text; wait $$SERVER_PID "
-    # ollama run tinyllama 'ping' --keepalive -1m &&
+      -c " ollama serve & SERVER_PID=$$!; until ollama status >/dev/null 2>&1; do sleep 1; done; ollama pull llama3.2 && ollama pull nomic-embed-text; wait $$SERVER_PID "
+    # ollama run llama3.2 'ping' --keepalive -1m &&
     # ollama run nomic-embed-text 'ping' --keepalive -1m &&
     restart: unless-stopped
 
@@ -284,7 +284,7 @@ services:
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_DOTNET_AUTO_LOGS_INCLUDE_FORMATTED_MESSAGE: true
       OTEL_INSTRUMENTATION_COMMON_DEFAULT_ENABLED: true
-      SPRING_AI_OLLAMA_CHAT_MODEL: tinyllama
+      SPRING_AI_OLLAMA_CHAT_MODEL: llama3.2
 
       # --- TRACING ---
       # Modern SB4 standard for tracing export

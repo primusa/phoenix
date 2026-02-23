@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS claims (
     fraud_score INTEGER DEFAULT -1,
     fraud_analysis TEXT,
     fraud_rationale TEXT,
+    fraud_thought TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 -- Ensure Debezium sees the OLD values on UPDATES/DELETES

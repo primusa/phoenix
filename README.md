@@ -54,17 +54,18 @@ graph TD
         K -->|Consumer| SB[Spring Boot Service]
         SB -->|1. Sanitize| GS[Governance Service]
         
-        subgraph "AI Modernization Pipeline"
+        subgraph "Agentic AI Pipeline"
             direction TB
             GS -->|2. Fast Summary| SUM[AI Summary]
-            GS -->|3. Semantic Search| VDB[(PGVector / RDS)]
-            VDB -->|4. Historical Context| IA[Intelligence Assessment]
-            GS -->|5. Reasoning| IA
+            GS -->|3. Evaluate Claim| IA{Intelligence Agent}
+            IA -->|Decide: Search Required?| VDB[(PGVector / RDS)]
+            VDB -.->|Historical Context| IA
+            IA -->|4. Final Assessment| FIN[Risk Report]
         end
     end
 
     SUM -->|Instant Brief| UI[React Dashboard]
-    IA -->|Deep Insights| UI
+    FIN -->|Deep Insights| UI
     
     style LDB fill:#ff9999,stroke:#333
     style DBZ fill:#ffff99,stroke:#333
@@ -72,6 +73,7 @@ graph TD
     style VDB fill:#9999ff,stroke:#333
     style SUM fill:#99f0ff,stroke:#333
     style IA fill:#ffdd99,stroke:#333
+    style FIN fill:#ffcc99,stroke:#333
     style K fill:#ffcc66,stroke:#333
     style GS fill:#66ccff,stroke:#333
     style UI fill:#cc99ff,stroke:#333
@@ -89,25 +91,28 @@ To handle intensive LLM API calls and vector searches without blocking high-thro
 spring.threads.virtual.enabled=true  // Virtual Threads enabled for massive AI concurrency
 ```
 
-### 🔍 Retrieval-Augmented Generation (RAG)
-Every incoming claim is vectorized and cross-referenced against the `pgvector` store. The AI reasons based on evidence from historical data.
+### 🤖 Agentic RAG (Autonomous Reasoning)
+Unlike static RAG systems that blindly pull context, Phoenix utilizes **Agentic RAG**. The AI acts as an autonomous **Fraud Analyst Agent** with access to a toolbox. It decides *if* it needs historical context, determines the best search query, and iterates on the findings before delivering a final verdict.
 
 ```java
-// Snippet from ClaimModernizationService.java
-fetchedClaims = vectorStoreManager.getStore(claimProvider)
-        .similaritySearch(SearchRequest.builder()
-                .query(sanitizedDescription)
-                .topK(3)
-                .build());
+// Agentic Tool Registration
+ChatClient agenticClient = chatClient.mutate()
+        .defaultFunctions("historicalClaimSearch") // AI Agent uses this tool autonomously
+        .build();
+
+String response = agenticClient.prompt()
+        .user("Analyze this claim for anomalies: " + claimText)
+        .call()
+        .content();
 ```
 
 ### 🧠 The Intelligence Assessment: How it Works
 The "Intelligence Assessment" is the transition from simple data processing to actual semantic reasoning. This 4-step orchestration happens in milliseconds:
 
-1.  **Contextual Retrieval**: The system performs a similarity search in `PGVector`, identifying the top 3 historical claims most relevant to the current event.
-2.  **Prompt Orchestration**: A dense context packet is built, combining the sanitized current claim with its historical "shadows" (similar past events).
-3.  **Reasoning Engine**: The LLM acts as a **Digital Adjuster**, analyzing timing inconsistencies, overlapping claimant details, and pattern anomalies.
-4.  **Structured Synthesis**: The AI generates a machine-readable score (0-100), a concise analysis, and a technical rationale, which is then parsed and projected to the React dashboard.
+1.  **Agentic Tooling**: The AI evaluates the claim and determines if evidence from the past is required via the `historicalClaimSearch` tool.
+2.  **Autonomous Retrieval**: The agent performs a similarity search in `PGVector` only when it suspects patterns or needs clarification.
+3.  **Digital Adjuster Persona**: The LLM analyzes the synthesized context for timing inconsistencies, overlapping claimant details, and pattern anomalies.
+4.  **Structured Synthesis**: The AI generates a machine-readable assessment (Score, Analysis, Rationale) and a **Chain of Thought (Thought)**, which is projected onto the React dashboard for full white-box transparency.
 
 ---
 
@@ -115,7 +120,7 @@ The "Intelligence Assessment" is the transition from simple data processing to a
 
 ### 💰 Cost Control (FinOps)
 AI tokens are expensive. Phoenix optimizes spend by implementing a **Multi-Stage Processing pipeline**:
-1.  **Stage 1 (Fast Summary)**: Uses tiny, cost-effective models (e.g., `tinyllama`) for immediate categorization.
+1.  **Stage 1 (Fast Summary)**: Uses tiny, cost-effective models (e.g., `llama3.2`) for immediate categorization.
 2.  **Stage 2 (Deep Analysis)**: Only triggers expensive RAG/Reasoning models (e.g., `gemini-1.5-pro`) for high-value or suspect claims.
 
 ### 🛡 Data Privacy (Governance Gate)
