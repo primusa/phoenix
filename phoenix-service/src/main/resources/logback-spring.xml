@@ -1,20 +1,42 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
+
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
     <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
 
-    <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
-        <captureExperimentalAttributes>true</captureExperimentalAttributes>
-        <captureCodeAttributes>true</captureCodeAttributes>
-        <captureMarkerAttribute>true</captureMarkerAttribute>
-        <captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>
-    </appender>
+    <!-- ===================== -->
+    <!-- OpenTelemetry Appender -->
+    <!-- ===================== -->
+    <springProfile name="otel">
+        <appender name="OTEL"
+                  class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+            <captureExperimentalAttributes>true</captureExperimentalAttributes>
+            <captureCodeAttributes>true</captureCodeAttributes>
+            <captureMarkerAttribute>true</captureMarkerAttribute>
+            <captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>
+        </appender>
+    </springProfile>
 
-    <root level="INFO">
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="OTEL"/>
-    </root>
+    <!-- ===================== -->
+    <!-- Default (no otel) -->
+    <!-- ===================== -->
+    <springProfile name="!otel">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- ===================== -->
+    <!-- With otel profile -->
+    <!-- ===================== -->
+    <springProfile name="otel">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="OTEL"/>
+        </root>
+    </springProfile>
 
     <!-- Project Specific -->
     <logger name="com.example.phoenix" level="DEBUG"/>
+
 </configuration>

@@ -426,6 +426,7 @@ Resources:
                 phoenix-backend:
                   image: ${!PHOENIX_ECR_URI}:latest
                   environment:
+                    SPRING_PROFILES_ACTIVE: "${SpringProfile}"
                     SPRING_DATASOURCE_URL: jdbc:postgresql://${!DB_HOST}:${!DB_PORT}/${!DB_NAME}
                     SPRING_DATASOURCE_USERNAME: ${!DB_USER}
                     SPRING_DATASOURCE_PASSWORD: ${!DB_PASS}
@@ -545,7 +546,8 @@ Resources:
               
               sleep 10
               /usr/bin/docker-compose ps
-            - OTelEnabled: !If [IsProd, "true", "false"]
+            - SpringProfile: !If [IsProd, "otel", "default"]
+              OTelEnabled: !If [IsProd, "true", "false"]
               OTelDisabled: !If [IsProd, "false", "true"]
               OTelExporter: !If [IsProd, "otlp", "none"]
               OTelLogFormat: !If [IsProd, "otlp", "standard"]

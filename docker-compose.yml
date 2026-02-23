@@ -130,7 +130,7 @@ services:
     # ollama run nomic-embed-text 'ping' --keepalive -1m &&
     restart: unless-stopped
 
-  # 5. Observability (Jaeger + Prometheus)
+  # 5. Observability (Jaeger + Prometheuxs)
   # --- EXTERNAL METRICS: Prometheus ---
   prometheus:
     profiles: [ "observability" ]
@@ -264,6 +264,7 @@ services:
     build: ./phoenix-service
     ports: [ "8080:8080" ]
     environment:
+      SPRING_PROFILES_ACTIVE: otel
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       # Fix: Disable internal Kafka telemetry to use OTel agent instead
       SPRING_KAFKA_PROPERTIES_ENABLE_METRICS_PUSH: "false"
