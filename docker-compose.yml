@@ -130,7 +130,7 @@ services:
     # ollama run nomic-embed-text 'ping' --keepalive -1m &&
     restart: unless-stopped
 
-  # 5. Observability (Jaeger + Prometheuxs)
+  # 5. Observability (Jaeger + Prometheus)
   # --- EXTERNAL METRICS: Prometheus ---
   prometheus:
     profiles: [ "observability" ]
