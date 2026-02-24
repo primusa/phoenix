@@ -58,7 +58,8 @@ graph TD
             direction TB
             GS -->|2. Fast Summary| SUM[AI Summary]
             GS -->|3. Evaluate Claim| IA{Intelligence Agent}
-            IA -->|Decide: Search Required?| VDB[(PGVector / RDS)]
+            GS -->|5. Vector Sync - Enrich Corpus| VDB[(PGVector / RDS)]
+            IA -->|Decide: Search Required?| VDB
             VDB -.->|Historical Context| IA
             IA -->|4. Final Assessment| FIN[Risk Report]
         end
