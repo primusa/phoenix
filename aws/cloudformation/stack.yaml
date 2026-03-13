@@ -268,6 +268,8 @@ Resources:
       Family: postgres16
       Parameters:
         rds.logical_replication: 1      # Required for Debezium/CDC
+        # Caps WAL kept for any replication slot to 1GB
+        max_slot_wal_keep_size: 1024   # 1GB in MB. Slot is invalidated before disk fills.
         shared_buffers: 268435456       # 256MB in bytes. Cache memory for small instances
         work_mem: 4194304              # 4MB in bytes. Memory per query operation
         maintenance_work_mem: 16777216  # 16MB in bytes. Memory for maintenance operations (vacuum, index rebuild)
