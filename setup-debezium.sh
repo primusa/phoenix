@@ -6,6 +6,13 @@ until curl -s -f -m 5 -o /dev/null http://localhost:8083; do
   sleep 2
 done
 
+echo "Ensuring claims table exists before connector registration..."
+# Check if the table exists in the insurance_corp database
+until docker-compose exec -T legacy-db psql -U postgres -d insurance_corp -c "\dt public.claims" | grep -q claims; do
+  echo "Table public.claims not found yet - sleeping"
+  sleep 2
+done
+
 echo "Registering insurance-connector..."
 curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" \
   http://localhost:8083/connectors/ -d '{
@@ -18,10 +25,12 @@ curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" 
     "database.password": "postgres",
     "database.dbname": "insurance_corp",
     "topic.prefix": "legacy",
+    "schema.include.list": "public",
     "table.include.list": "public.claims",
     "plugin.name": "pgoutput",
     "slot.name": "insurance_slot",
-    "publication.autocreate.mode": "filtered",
+    "publication.name": "dbz_publication",
+    "publication.autocreate.mode": "all_tables",
     "snapshot.mode": "initial"
   }
 }'
